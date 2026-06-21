@@ -103,7 +103,7 @@ defmodule Longbridge.Connection.Session do
   @doc false
   def fail_pending_requests(state, reason) do
     Enum.each(state.pending, fn {_req_id, %{from: from, ref: ref}} ->
-      _ = Process.cancel_timer(ref)
+      _ = if(ref, do: Process.cancel_timer(ref))
       GenServer.reply(from, {:error, {:disconnected, reason}})
     end)
 
@@ -118,6 +118,7 @@ defmodule Longbridge.Connection.Session do
       )
 
       broadcast(state, :reconnect_exhausted)
+      state
     else
       delay = backoff_delay(state.reconnect_attempts)
       timer = Process.send_after(self(), :reconnect, delay)
