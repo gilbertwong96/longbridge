@@ -148,6 +148,7 @@ lib/
     ├── config.ex                # Longbridge.Config struct, refresh_access_token/2
     ├── connection.ex            # TCP GenServer (one per endpoint)
     ├── content_context.ex       # news, community topics, announcements
+    ├── dca_context.ex           # dollar-cost averaging plan management
     ├── fundamental_context.ex   # financial reports, analyst ratings, dividends, valuation
     ├── http_client.ex           # HMAC-SHA256 signed HTTP requests via Finch
     ├── market_context.ex        # market status, broker holdings, indices, anomaly alerts
@@ -156,6 +157,7 @@ lib/
     ├── protocol.ex              # packet pack/unpack + wire-format constants
     ├── protocol/header.ex       # 11/10/5-byte header encode/decode
     ├── quote_context.ex         # public API: 20+ quote methods
+    ├── sharelist_context.ex     # community sharelist management
     └── trade_context.ex         # public API: orders, positions, account, executions, push
 protos/
 ├── control.proto                # Auth, Heartbeat, Close
@@ -334,6 +336,30 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `enable_alert/2` | Enable a price alert |
 | `disable_alert/2` | Disable a price alert |
 | `delete_alert/2` | Delete a price alert |
+
+### `Longbridge.DCAContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `create_plan/2` | Create a DCA plan |
+| `list_plans/2` | List DCA plans |
+| `plan_detail/2` | Get plan details |
+| `update_plan/2` | Update an existing plan |
+| `pause_plan/2` | Pause an active plan |
+| `resume_plan/2` | Resume a paused plan |
+| `delete_plan/2` | Delete a plan |
+
+### `Longbridge.SharelistContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `create/2` | Create a new sharelist |
+| `list/2` | List owned sharelists |
+| `detail/2` | Get symbols in a sharelist |
+| `rename/3` | Rename a sharelist |
+| `add_symbols/3` | Add symbols to a sharelist |
+| `remove_symbols/3` | Remove symbols from a sharelist |
+| `delete/2` | Delete a sharelist |
 
 ### Push command codes (consumer-side)
 

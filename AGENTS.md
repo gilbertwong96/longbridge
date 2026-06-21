@@ -16,6 +16,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.Config` | Endpoint + auth configuration struct. `refresh_access_token/2` for legacy API key flow. |
 | `Longbridge.Connection` | TCP GenServer. Owns the socket, handshake, auth, heartbeat, request/response pairing, push dispatch. |
 | `Longbridge.ContentContext` | News, community topics, announcements. HTTP-only. |
+| `Longbridge.DCAContext` | Dollar-cost averaging plan management. HTTP-only. |
 | `Longbridge.FundamentalContext` | Financial reports, analyst ratings, dividends, valuation, shareholders. HTTP-only. |
 | `Longbridge.HTTPClient` | Signed HTTP requests via `Longbridge.Finch`. Used by all HTTP-only contexts. |
 | `Longbridge.MarketContext` | Market status, broker holdings, indices, anomaly alerts. HTTP-only. |
@@ -25,6 +26,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.Protocol.Header` | Per-packet header encode/decode (request / response / push layouts). |
 | `Longbridge.Protos` | `use Protox, files: protos/*.proto` — generates `Longbridge.{Control,Quote,Trade}.V1.*` structs. |
 | `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
+| `Longbridge.SharelistContext` | Community sharelist management. HTTP-only. |
 | `Longbridge.TradeContext` | Public API for the trade endpoint — orders, positions, account, executions, push. |
 
 ## Quality gate (source of truth)
