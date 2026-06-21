@@ -4,7 +4,7 @@ Elixir SDK for the [Longbridge OpenAPI](https://open.longbridge.com) trading pla
 
 The SDK speaks Longbridge's binary protocol directly over TCP: 2-byte handshake, then Protobuf-encoded request/response and push frames with a custom 11/10/5-byte header layout. There is no JSON-over-HTTP path; this library is a faithful re-implementation of the wire format, not an HTTP client.
 
-> **Status: alpha.** The quote endpoint is feature-complete; the trade endpoint ships subscribe/unsubscribe only. Order submission, account/balance, and position queries are not yet implemented. The API is subject to change before 0.1.0.
+> **Status: beta.** The quote endpoint is feature-complete; the trade endpoint supports subscription, order submission, position queries, account balance, and execution history via the Longbridge REST API. The API is subject to change before 0.1.0.
 
 ## Installation
 
@@ -69,7 +69,7 @@ end
 ## Refreshing the access token (legacy API key)
 
 The legacy API Key `access_token` expires after 90 days. To obtain a
-new one, call `Config.refresh_access_token/2` and use the returned
+new one, call `Longbridge.Config.refresh_access_token/2` and use the returned
 config. The new `token` and `expired_at` are set on the result.
 
 ```elixir
@@ -141,17 +141,19 @@ lib/
 ├── longbridge.ex                # top-level module, public entry, docs
 └── longbridge/
     ├── _protos.ex              # use Protox, files: [protos/*.proto] — code-gen entry
-    ├── config.ex                # Longbridge.Config struct
+    ├── application.ex           # supervision tree, starts Longbridge.Finch pool
+    ├── config.ex                # Longbridge.Config struct, refresh_access_token/2
     ├── connection.ex            # TCP GenServer (one per endpoint)
+    ├── http_client.ex           # HMAC-SHA256 signed HTTP requests via Finch
+    ├── oauth.ex                 # OAuth 2.0 Authorization Code flow with PKCE
     ├── protocol.ex              # packet pack/unpack + wire-format constants
     ├── protocol/header.ex       # 11/10/5-byte header encode/decode
     ├── quote_context.ex         # public API: 20+ quote methods
-    └── trade_context.ex         # public API: subscribe/unsubscribe
+    └── trade_context.ex         # public API: orders, positions, account, executions, push
 protos/
 ├── control.proto                # Auth, Heartbeat, Close
-├── error.proto                  # server error envelope
-├── api.proto                    # quote API (vendored from upstream)
-└── subscribe.proto              # trade push subscription
+├── quote.proto                  # Market data (securities, quotes, depth, brokers, etc.)
+└── trade.proto                  # Trade, order, notification messages
 ```
 
 ### Wire format
@@ -221,10 +223,43 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 
 ### `Longbridge.TradeContext`
 
-| Method | Sub-command | Notes |
-| --- | --- | --- |
-| `subscribe/1` | `CMD_SUB` (16) | Receives `Notification` push frames. |
-| `unsubscribe/1` | `CMD_UNSUB` (17) | |
+**Push & subscription**
+
+| Method | Description |
+| --- | --- |
+| `subscribe/2` | Subscribe to trade push topics (`:private` for orders) |
+| `unsubscribe/2` | Unsubscribe from trade push |
+| `put_callback/3` | Register a topic-specific callback (e.g. `"/v1/trade/order_changed"`) |
+| `remove_callback/2` | Remove a topic callback |
+| `set_default_push_callback/2` | Fallback callback for unregistered topics |
+| `set_on_order_changed/2` | Convenience wrapper for order-changed events |
+| `on_order_changed/2` | Alias for `set_on_order_changed/2` |
+
+**Orders** (HTTP — REST API)
+
+| Method | Description |
+| --- | --- |
+| `submit_order/2` | Place a new order |
+| `replace_order/2` | Replace an existing order |
+| `cancel_order/2` | Cancel an order by ID |
+| `today_orders/2` | List today's orders |
+| `history_orders/2` | Search historical orders |
+| `order_detail/2` | Get a single order by ID |
+
+**Executions** (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `today_executions/2` | List today's fills |
+| `history_executions/2` | Search historical fills |
+
+**Account & positions** (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `account_balance/2` | Get cash / buying power |
+| `stock_positions/2` | List stock holdings |
+| `fund_positions/2` | List fund holdings |
 
 ### Push command codes (consumer-side)
 

@@ -28,7 +28,11 @@ defmodule Longbridge.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"]
+      extras: ["README.md"],
+      skip_undefined_reference_warnings_on: [
+        "README.md",
+        "lib/longbridge/quote_context.ex"
+      ]
     ]
   end
 
