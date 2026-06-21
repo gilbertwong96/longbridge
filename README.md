@@ -141,11 +141,18 @@ lib/
 ├── longbridge.ex                # top-level module, public entry, docs
 └── longbridge/
     ├── _protos.ex              # use Protox, files: [protos/*.proto] — code-gen entry
+    ├── alert_context.ex         # price alert management (add/enable/disable/delete)
     ├── application.ex           # supervision tree, starts Longbridge.Finch pool
+    ├── asset_context.ex         # account statement download
+    ├── calendar_context.ex      # financial calendar (earnings, dividends, IPOs, macro)
     ├── config.ex                # Longbridge.Config struct, refresh_access_token/2
     ├── connection.ex            # TCP GenServer (one per endpoint)
+    ├── content_context.ex       # news, community topics, announcements
+    ├── fundamental_context.ex   # financial reports, analyst ratings, dividends, valuation
     ├── http_client.ex           # HMAC-SHA256 signed HTTP requests via Finch
+    ├── market_context.ex        # market status, broker holdings, indices, anomaly alerts
     ├── oauth.ex                 # OAuth 2.0 Authorization Code flow with PKCE
+    ├── portfolio_context.ex     # exchange rates, portfolio P&L analysis
     ├── protocol.ex              # packet pack/unpack + wire-format constants
     ├── protocol/header.ex       # 11/10/5-byte header encode/decode
     ├── quote_context.ex         # public API: 20+ quote methods
@@ -261,6 +268,73 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `stock_positions/2` | List stock holdings |
 | `fund_positions/2` | List fund holdings |
 
+### `Longbridge.AssetContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `statements/2` | List account statements (daily/monthly) |
+| `download_url/2` | Get presigned download URL for a statement file |
+
+### `Longbridge.MarketContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `trading_days/4` | Trading days between two dates |
+| `market_session/2` | Current trading session for a market |
+| `broker_holdings/2` | Broker holdings (HK stocks) |
+| `ah_premium/2` | A/H share premium data |
+| `trade_status/2` | Intraday trade status for a symbol |
+| `index_constituents/2` | Constituents of a market index |
+| `anomaly_alerts/1` | Market anomaly alerts |
+
+### `Longbridge.ContentContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `news/2` | News articles with filtering/pagination |
+| `topics/2` | Community topics/posts |
+| `announcements/2` | Company announcements |
+
+### `Longbridge.FundamentalContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `company_profile/2` | Company profile / overview |
+| `financial_reports/3` | Income, balance, cash flow reports |
+| `analyst_ratings/2` | Analyst ratings and targets |
+| `dividends/2` | Dividend history |
+| `valuation/2` | PE, PB, PS metrics |
+| `shareholders/2` | Shareholder distribution |
+
+### `Longbridge.CalendarContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `earnings/4` | Upcoming earnings dates |
+| `dividend_dates/4` | Dividend schedule |
+| `stock_splits/4` | Stock split calendar |
+| `ipo_calendar/4` | IPO calendar |
+| `macro_events/4` | Macro economic event dates |
+| `market_closures/2` | Market closure dates (holidays) |
+
+### `Longbridge.PortfolioContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `exchange_rates/3` | Real-time exchange rates |
+| `portfolio_pl/2` | Portfolio P&L analysis |
+| `portfolio_positions/1` | Portfolio position list |
+
+### `Longbridge.AlertContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `add_alert/2` | Create a price alert |
+| `list_alerts/1` | List active price alerts |
+| `enable_alert/2` | Enable a price alert |
+| `disable_alert/2` | Disable a price alert |
+| `delete_alert/2` | Delete a price alert |
+
 ### Push command codes (consumer-side)
 
 | Code | Message | Decode with |
@@ -276,7 +350,7 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 ```sh
 mix deps.get
 mix compile        # generates 98 proto modules on first build
-mix test           # 17 unit tests
+mix test           # unit tests
 mix docs           # ExDoc HTML in doc/
 ```
 

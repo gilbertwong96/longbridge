@@ -9,16 +9,23 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | Module | Role |
 | --- | --- |
 | `Longbridge` | Top-level docs-only module. Public entry point. |
+| `Longbridge.AlertContext` | Price alert management (add/enable/disable/delete). HTTP-only. |
 | `Longbridge.Application` | Supervision tree. Starts the `Longbridge.Finch` HTTP pool. |
+| `Longbridge.AssetContext` | Account statement download. HTTP-only. |
+| `Longbridge.CalendarContext` | Financial calendar (earnings, dividends, IPOs, macro, closures). HTTP-only. |
 | `Longbridge.Config` | Endpoint + auth configuration struct. `refresh_access_token/2` for legacy API key flow. |
-| `Longbridge.HTTPClient` | Signed HTTP requests via `Longbridge.Finch`. Used by `Config.refresh_access_token/2`; reusable for arbitrary Longbridge REST calls. |
-| `Longbridge.OAuth` | OAuth 2.0 Authorization Code flow with PKCE. Browser flow (`authorize/2`) and headless server flow (`load_token/1`, `export_token/1`, `refresh_token/2`). |
+| `Longbridge.Connection` | TCP GenServer. Owns the socket, handshake, auth, heartbeat, request/response pairing, push dispatch. |
+| `Longbridge.ContentContext` | News, community topics, announcements. HTTP-only. |
+| `Longbridge.FundamentalContext` | Financial reports, analyst ratings, dividends, valuation, shareholders. HTTP-only. |
+| `Longbridge.HTTPClient` | Signed HTTP requests via `Longbridge.Finch`. Used by all HTTP-only contexts. |
+| `Longbridge.MarketContext` | Market status, broker holdings, indices, anomaly alerts. HTTP-only. |
+| `Longbridge.OAuth` | OAuth 2.0 Authorization Code flow with PKCE. Browser flow and headless server flow. |
+| `Longbridge.PortfolioContext` | Exchange rates and portfolio P&L analysis. HTTP-only. |
 | `Longbridge.Protocol` | Wire-format constants + `pack/2` / `unpack/1` for whole packets. |
 | `Longbridge.Protocol.Header` | Per-packet header encode/decode (request / response / push layouts). |
-| `Longbridge.Connection` | TCP GenServer. Owns the socket, handshake, auth, heartbeat, request/response pairing, push dispatch. |
-| `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
-| `Longbridge.TradeContext` | Public API for the trade endpoint — currently subscribe/unsubscribe only. |
 | `Longbridge.Protos` | `use Protox, files: protos/*.proto` — generates `Longbridge.{Control,Quote,Trade}.V1.*` structs. |
+| `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
+| `Longbridge.TradeContext` | Public API for the trade endpoint — orders, positions, account, executions, push. |
 
 ## Quality gate (source of truth)
 
@@ -41,7 +48,7 @@ When a step fails, fix the underlying issue — never silence a check (`@compile
 ```sh
 mix deps.get            # first time only
 mix compile             # builds protos + app
-mix test                # 17 unit tests in test/longbridge_test.exs
+mix test                # run unit tests
 mix format              # auto-format
 mix docs                # generate ExDoc HTML
 ```

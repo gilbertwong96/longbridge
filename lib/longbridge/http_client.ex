@@ -204,6 +204,42 @@ defmodule Longbridge.HTTPClient do
     Base.encode16(:crypto.mac(:hmac, :sha256, secret, data), case: :lower)
   end
 
+  @doc """
+  Performs a signed HTTP request and unwraps the Longbridge response envelope.
+
+  Longbridge REST API responses all share the form:
+    `{"code": 0, "data": {...}}`
+
+  This helper calls `request/5` and extracts the `"data"` field on success
+  (code 0), or returns an `{:error, {:api_error, code, message}}` tuple.
+  """
+  @spec request_json(atom(), String.t(), String.t(), Config.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def request_json(method, path, body, %Config{} = config, opts \\ []) do
+    case request(method, path, body, config, opts) do
+      {:ok, %{"code" => 0, "data" => data}} -> {:ok, data}
+      {:ok, %{"code" => code, "message" => msg}} -> {:error, {:api_error, code, msg}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Builds a URL query string from a keyword list.
+
+  Nil values are filtered out. Values are URI-encoded.
+
+  ## Example
+
+      iex> Longbridge.HTTPClient.build_query(market: "US", symbol: nil)
+      "market=US"
+  """
+  @spec build_query(keyword()) :: String.t()
+  def build_query(kw) do
+    kw
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Enum.map_join("&", fn {k, v} -> "#{k}=#{URI.encode_www_form(to_string(v))}" end)
+  end
+
   defp default_expired_at do
     System.system_time(:second) + @default_expired_at_seconds
   end
