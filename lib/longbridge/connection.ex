@@ -22,16 +22,13 @@ defmodule Longbridge.Connection do
   use GenServer
   require Logger
 
+  alias Longbridge.Connection.Session
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol
   alias Longbridge.Protocol.Header
 
   @handshake_timeout 5_000
   @auth_timeout 10_000
-  @reconnect_initial_delay 1_000
-  @reconnect_max_delay 30_000
-  @max_reconnect_attempts 10
-  @reconnect_jitter 500
 
   # ── Client API (internal, used by contexts) ──────────────
 
@@ -122,7 +119,7 @@ defmodule Longbridge.Connection do
 
   @impl true
   def handle_continue(:auth, state) do
-    case do_auth_with_retry(state) do
+    case Session.do_auth_with_retry(state, &do_auth/1) do
       {:ok, state} ->
         state = %{state | connection_state: :active, reconnect_attempts: 0}
         state = schedule_idle_timer(state)
@@ -325,42 +322,8 @@ defmodule Longbridge.Connection do
     :ok
   end
 
-  defp fail_pending_requests(state, reason) do
-    Enum.each(state.pending, fn {_req_id, %{from: from, ref: ref}} ->
-      _ = Process.cancel_timer(ref)
-      GenServer.reply(from, {:error, {:disconnected, reason}})
-    end)
-
-    :ok
-  end
-
-  defp schedule_reconnect(state, _reason) do
-    if state.reconnect_attempts >= @max_reconnect_attempts do
-      Logger.error(
-        "[Longbridge.#{state.type}] Giving up after #{@max_reconnect_attempts} reconnect attempts"
-      )
-
-      broadcast(state, :reconnect_exhausted)
-    else
-      delay = backoff_delay(state.reconnect_attempts)
-      timer = Process.send_after(self(), :reconnect, delay)
-      state = %{state | reconnect_timer: timer, reconnect_attempts: state.reconnect_attempts + 1}
-
-      Logger.info(
-        "[Longbridge.#{state.type}] Reconnecting in #{div(delay, 1000)}s " <>
-          "(attempt #{state.reconnect_attempts}/#{@max_reconnect_attempts})"
-      )
-
-      state
-    end
-  end
-
-  defp backoff_delay(attempts) do
-    base = @reconnect_initial_delay * :math.pow(2, attempts)
-    capped = min(base, @reconnect_max_delay)
-    jitter = :rand.uniform(@reconnect_jitter)
-    round(capped + jitter)
-  end
+  defdelegate fail_pending_requests(state, reason), to: Session
+  defdelegate schedule_reconnect(state, reason), to: Session
 
   defp cleanup_socket(state) do
     if state.socket do
@@ -379,51 +342,6 @@ defmodule Longbridge.Connection do
 
       {:error, reason} ->
         {:error, {:handshake, reason}}
-    end
-  end
-
-  defp do_auth_with_retry(state) do
-    case do_auth(state) do
-      {:ok, state} ->
-        {:ok, state}
-
-      {:error, {:auth_failed, _} = reason} ->
-        if state.config.app_key && state.config.app_secret do
-          Logger.info(
-            "[Longbridge.#{state.type}] Auth failed (#{inspect(reason)}), attempting token refresh..."
-          )
-
-          refresh_and_retry_auth(state)
-        else
-          {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp refresh_and_retry_auth(state) do
-    result =
-      try do
-        state.refresh_token_fn.(state.config)
-      rescue
-        exception in [ArgumentError, MatchError, RuntimeError] ->
-          {:error, {:refresh_exception, exception}}
-      end
-
-    case result do
-      {:ok, new_config} ->
-        Logger.info("[Longbridge.#{state.type}] Token refreshed, retrying auth...")
-        state = %{state | config: new_config}
-        do_auth(state)
-
-      {:error, refresh_reason} ->
-        Logger.warning(
-          "[Longbridge.#{state.type}] Token refresh failed: #{inspect(refresh_reason)}"
-        )
-
-        {:error, {:auth_failed_and_refresh_failed, refresh_reason}}
     end
   end
 
@@ -489,6 +407,9 @@ defmodule Longbridge.Connection do
 
   # ── Packet Processing ────────────────────────────────────
 
+  # TCP-specific: buffers incomplete packets across chunks. WSConnection
+  # does not need this since WS binary messages carry complete length-prefixed
+  # frames.
   defp process_data(state, data) when byte_size(data) == 0, do: state
 
   defp process_data(state, data) do
@@ -509,36 +430,19 @@ defmodule Longbridge.Connection do
     end
   end
 
+  # TCP-specific: dispatch_packet for :request echoes heartbeat back over the
+  # socket. The shared response/push dispatching lives in Session.
   defp dispatch_packet(state, %Header{type: :response} = header, body) do
-    req_id = header.request_id
-
-    case Map.pop(state.pending, req_id) do
-      {%{from: from, ref: ref}, state} ->
-        _ = Process.cancel_timer(ref)
-
-        if header.status_code == Protocol.status_success() do
-          GenServer.reply(from, {:ok, body, req_id})
-        else
-          GenServer.reply(from, {:error, {:server_error, header.status_code, body}})
-        end
-
-        state
-
-      {nil, state} ->
-        Logger.warning("[Longbridge.#{state.type}] Unexpected response for req_id: #{req_id}")
-        state
-    end
+    Session.dispatch_response(state, header, body)
   end
 
   defp dispatch_packet(state, %Header{type: :push} = header, body) do
-    broadcast(state, {:push, header.cmd_code, body})
-    state
+    Session.dispatch_push(state, header, body)
   end
 
   defp dispatch_packet(state, %Header{type: :request} = header, body) do
-    # Server-initiated heartbeat (ping)
+    # Server-initiated heartbeat (ping) — echo back over TCP
     if Protocol.heartbeat?(header.cmd_code) do
-      # Echo back as response
       resp_header = %Header{
         type: :response,
         verify: false,
@@ -550,7 +454,8 @@ defmodule Longbridge.Connection do
       }
 
       data = Protocol.pack(resp_header, body)
-      :ok = :gen_tcp.send(state.socket, data)
+      _ = :gen_tcp.send(state.socket, data)
+      :ok
     end
 
     state
@@ -558,30 +463,8 @@ defmodule Longbridge.Connection do
 
   # ── Helpers ──────────────────────────────────────────────
 
-  defp next_request_id(state) do
-    id = state.request_id + 1
-    if id > 4_294_967_295, do: 1, else: id
-  end
-
-  defp schedule_idle_timer(%{config: %{idle_timeout: timeout}} = state) when timeout > 0 do
-    _ = if(state.idle_timer, do: Process.cancel_timer(state.idle_timer))
-    timer = Process.send_after(self(), :idle_timeout, timeout)
-    %{state | idle_timer: timer}
-  end
-
-  defp schedule_idle_timer(state), do: state
-
-  defp cancel_idle_timer(state) do
-    if state.idle_timer do
-      _ = Process.cancel_timer(state.idle_timer)
-      %{state | idle_timer: nil}
-    else
-      state
-    end
-  end
-
-  defp broadcast(state, message) do
-    for pid <- state.subscribers, do: send(pid, {:longbridge, self(), message})
-    :ok
-  end
+  defdelegate next_request_id(state), to: Session
+  defdelegate schedule_idle_timer(state), to: Session
+  defdelegate cancel_idle_timer(state), to: Session
+  defdelegate broadcast(state, message), to: Session
 end
