@@ -7,6 +7,7 @@ defmodule Longbridge.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
+      package: package(),
       deps: deps(),
       docs: docs(),
       aliases: aliases(),
@@ -71,7 +72,11 @@ defmodule Longbridge.MixProject do
     [
       {:protox, "~> 2.0"},
       {:openapi_protobuf_specs,
-       github: "longbridge/openapi-protobufs", tag: "gen/go/v0.7.0", app: false, compile: false},
+       github: "longbridge/openapi-protobufs",
+       tag: "gen/go/v0.7.0",
+       app: false,
+       compile: false,
+       only: [:dev, :test]},
       {:pi_bridge, "~> 0.6", only: :dev},
       {:finch, "~> 0.18"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -83,6 +88,21 @@ defmodule Longbridge.MixProject do
       {:mint_web_socket, "~> 1.0"},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.7", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      description:
+        "Elixir SDK for the Longbridge OpenAPI trading platform — " <>
+          "real-time market data, order submission, push subscriptions, " <>
+          "and OAuth 2.0 authentication for US, HK, SG, and CN markets.",
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/longbridge/longbridge",
+        "Longbridge" => "https://open.longbridge.com"
+      },
+      files: ~w[lib protos .formatter.exs mix.exs README.md]
     ]
   end
 end
