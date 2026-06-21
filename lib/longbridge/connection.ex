@@ -28,6 +28,10 @@ defmodule Longbridge.Connection do
 
   @handshake_timeout 5_000
   @auth_timeout 10_000
+  @reconnect_initial_delay 1_000
+  @reconnect_max_delay 30_000
+  @max_reconnect_attempts 10
+  @reconnect_jitter 500
 
   # ── Client API (internal, used by contexts) ──────────────
 
@@ -80,60 +84,87 @@ defmodule Longbridge.Connection do
       request_id: 0,
       pending: %{},
       subscribers: MapSet.new([parent]),
-      buffer: <<>>
+      buffer: <<>>,
+      connection_state: :disconnected,
+      reconnect_attempts: 0,
+      reconnect_timer: nil,
+      idle_timer: nil,
+      refresh_token_fn:
+        Keyword.get(opts, :refresh_token_fn, fn config ->
+          Longbridge.Config.refresh_access_token(config, [])
+        end)
     }
 
     case do_connect(state) do
-      {:ok, state} -> {:ok, state, {:continue, :handshake}}
-      {:error, reason} -> {:stop, reason}
+      {:ok, state} ->
+        state = %{state | connection_state: :handshaking}
+        {:ok, state, {:continue, :handshake}}
+
+      {:error, reason} ->
+        _ = schedule_reconnect(state, reason)
+        {:ok, state}
     end
   end
 
   @impl true
   def handle_continue(:handshake, state) do
     case do_handshake(state) do
-      {:ok, state} -> {:noreply, state, {:continue, :auth}}
-      {:error, reason} -> {:stop, reason, state}
+      {:ok, state} ->
+        state = %{state | connection_state: :authenticating}
+        {:noreply, state, {:continue, :auth}}
+
+      {:error, reason} ->
+        Logger.warning("[Longbridge.#{state.type}] Handshake failed: #{inspect(reason)}")
+        _ = handle_connection_failure(state, reason)
+        {:noreply, state}
     end
   end
 
   @impl true
   def handle_continue(:auth, state) do
-    case do_auth(state) do
+    case do_auth_with_retry(state) do
       {:ok, state} ->
+        state = %{state | connection_state: :active, reconnect_attempts: 0}
+        state = schedule_idle_timer(state)
         Logger.info("[Longbridge.#{state.type}] Authenticated, session: #{state.session_id}")
         broadcast(state, {:connected, state.session_id})
         {:noreply, state}
 
       {:error, reason} ->
-        {:stop, reason, state}
+        Logger.warning("[Longbridge.#{state.type}] Auth failed: #{inspect(reason)}")
+        _ = handle_connection_failure(state, reason)
+        {:noreply, state}
     end
   end
 
   @impl true
   def handle_call({:request, cmd_code, body, timeout}, from, state) do
-    req_id = next_request_id(state)
-    ref = Process.send_after(self(), {:request_timeout, req_id}, timeout)
+    if state.connection_state == :active do
+      req_id = next_request_id(state)
+      ref = Process.send_after(self(), {:request_timeout, req_id}, timeout)
 
-    packet_header = %Header{
-      type: :request,
-      verify: false,
-      gzip: false,
-      body_length: 0,
-      cmd_code: cmd_code,
-      request_id: req_id,
-      timeout: min(timeout, 60_000)
-    }
+      packet_header = %Header{
+        type: :request,
+        verify: false,
+        gzip: false,
+        body_length: 0,
+        cmd_code: cmd_code,
+        request_id: req_id,
+        timeout: min(timeout, 60_000)
+      }
 
-    data = Protocol.pack(packet_header, body)
-    :ok = :gen_tcp.send(state.socket, data)
+      data = Protocol.pack(packet_header, body)
+      :ok = :gen_tcp.send(state.socket, data)
 
-    state =
-      state
-      |> put_in([:pending, req_id], %{from: from, ref: ref})
-      |> then(&%{&1 | request_id: req_id})
+      state =
+        state
+        |> put_in([:pending, req_id], %{from: from, ref: ref})
+        |> then(&%{&1 | request_id: req_id})
 
-    {:noreply, state}
+      {:noreply, state}
+    else
+      {:reply, {:error, :not_connected}, state}
+    end
   end
 
   @impl true
@@ -153,27 +184,58 @@ defmodule Longbridge.Connection do
   @impl true
   def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
     state = process_data(state, state.buffer <> data)
-    {:noreply, %{state | buffer: <<>>}}
+    {:noreply, schedule_idle_timer(%{state | buffer: <<>>})}
+  end
+
+  @impl true
+  def handle_info(:idle_timeout, state) do
+    Logger.warning("[Longbridge.#{state.type}] Connection idle timeout")
+    handle_disconnect(state, :idle_timeout)
   end
 
   @impl true
   def handle_info({:tcp_closed, socket}, %{socket: socket} = state) do
     Logger.warning("[Longbridge.#{state.type}] Connection closed")
-    broadcast(state, :disconnected)
-    {:stop, :tcp_closed, state}
+    handle_disconnect(state, :tcp_closed)
   end
 
   @impl true
   def handle_info({:tcp_error, socket, reason}, %{socket: socket} = state) do
     Logger.error("[Longbridge.#{state.type}] TCP error: #{inspect(reason)}")
-    broadcast(state, {:error, reason})
-    {:stop, reason, state}
+    handle_disconnect(state, {:tcp_error, reason})
+  end
+
+  @impl true
+  def handle_info({:tcp_closed, _other_socket}, state) do
+    # Stale close event for an already-replaced socket. Ignore.
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:tcp_error, _other_socket, _reason}, state) do
+    # Stale error event for an already-replaced socket. Ignore.
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:reconnect, state) do
+    state = %{state | reconnect_timer: nil}
+
+    case do_connect(state) do
+      {:ok, state} ->
+        state = %{state | connection_state: :handshaking}
+        {:noreply, state, {:continue, :handshake}}
+
+      {:error, reason} ->
+        _ = schedule_reconnect(state, reason)
+        {:noreply, state}
+    end
   end
 
   @impl true
   def handle_info({:request_timeout, req_id}, state) do
     case Map.pop(state.pending, req_id) do
-      {{%{from: from}, _ref}, state} ->
+      {%{from: from}, state} ->
         GenServer.reply(from, {:error, :timeout})
         {:noreply, state}
 
@@ -184,6 +246,15 @@ defmodule Longbridge.Connection do
 
   @impl true
   def handle_info(:heartbeat, state) do
+    _ =
+      if state.connection_state == :active do
+        send_heartbeat(state)
+      end
+
+    {:noreply, state}
+  end
+
+  defp send_heartbeat(state) do
     heartbeat_header = %Header{
       type: :request,
       verify: false,
@@ -198,14 +269,20 @@ defmodule Longbridge.Connection do
     heartbeat_body = %Ctrl.Heartbeat{timestamp: timestamp}
     {:ok, iodata, _size} = Protox.encode(heartbeat_body)
     data = Protocol.pack(heartbeat_header, IO.iodata_to_binary(iodata))
-    :ok = :gen_tcp.send(state.socket, data)
-
-    {:noreply, state}
+    _ = :gen_tcp.send(state.socket, data)
   end
 
   @impl true
   def terminate(_reason, state) do
-    if state.socket, do: :gen_tcp.close(state.socket)
+    state = cancel_idle_timer(state)
+
+    _ =
+      if state.reconnect_timer do
+        _ = Process.cancel_timer(state.reconnect_timer)
+        :ok
+      end
+
+    _ = cleanup_socket(state)
     :ok
   end
 
@@ -220,6 +297,79 @@ defmodule Longbridge.Connection do
     end
   end
 
+  defp handle_disconnect(state, reason) do
+    _ = cleanup_socket(state)
+    _ = fail_pending_requests(state, reason)
+
+    state =
+      state
+      |> cancel_idle_timer()
+      |> then(fn s -> %{s | connection_state: :disconnected, session_id: nil, buffer: <<>>} end)
+
+    broadcast(state, {:disconnected, reason})
+    _ = schedule_reconnect(state, reason)
+    {:noreply, state}
+  end
+
+  defp handle_connection_failure(state, reason) do
+    state =
+      state
+      |> cancel_idle_timer()
+      |> cleanup_socket()
+      |> Map.put(:connection_state, :disconnected)
+      |> Map.put(:session_id, nil)
+      |> Map.put(:buffer, <<>>)
+
+    broadcast(state, {:disconnected, reason})
+    _ = schedule_reconnect(state, reason)
+    :ok
+  end
+
+  defp fail_pending_requests(state, reason) do
+    Enum.each(state.pending, fn {_req_id, %{from: from, ref: ref}} ->
+      _ = Process.cancel_timer(ref)
+      GenServer.reply(from, {:error, {:disconnected, reason}})
+    end)
+
+    :ok
+  end
+
+  defp schedule_reconnect(state, _reason) do
+    if state.reconnect_attempts >= @max_reconnect_attempts do
+      Logger.error(
+        "[Longbridge.#{state.type}] Giving up after #{@max_reconnect_attempts} reconnect attempts"
+      )
+
+      broadcast(state, :reconnect_exhausted)
+    else
+      delay = backoff_delay(state.reconnect_attempts)
+      timer = Process.send_after(self(), :reconnect, delay)
+      state = %{state | reconnect_timer: timer, reconnect_attempts: state.reconnect_attempts + 1}
+
+      Logger.info(
+        "[Longbridge.#{state.type}] Reconnecting in #{div(delay, 1000)}s " <>
+          "(attempt #{state.reconnect_attempts}/#{@max_reconnect_attempts})"
+      )
+
+      state
+    end
+  end
+
+  defp backoff_delay(attempts) do
+    base = @reconnect_initial_delay * :math.pow(2, attempts)
+    capped = min(base, @reconnect_max_delay)
+    jitter = :rand.uniform(@reconnect_jitter)
+    round(capped + jitter)
+  end
+
+  defp cleanup_socket(state) do
+    if state.socket do
+      :gen_tcp.close(state.socket)
+    end
+
+    %{state | socket: nil}
+  end
+
   defp do_handshake(state) do
     case :gen_tcp.send(state.socket, Protocol.handshake()) do
       :ok ->
@@ -232,55 +382,108 @@ defmodule Longbridge.Connection do
     end
   end
 
+  defp do_auth_with_retry(state) do
+    case do_auth(state) do
+      {:ok, state} ->
+        {:ok, state}
+
+      {:error, {:auth_failed, _} = reason} ->
+        if state.config.app_key && state.config.app_secret do
+          Logger.info(
+            "[Longbridge.#{state.type}] Auth failed (#{inspect(reason)}), attempting token refresh..."
+          )
+
+          refresh_and_retry_auth(state)
+        else
+          {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp refresh_and_retry_auth(state) do
+    result =
+      try do
+        state.refresh_token_fn.(state.config)
+      rescue
+        exception in [ArgumentError, MatchError, RuntimeError] ->
+          {:error, {:refresh_exception, exception}}
+      end
+
+    case result do
+      {:ok, new_config} ->
+        Logger.info("[Longbridge.#{state.type}] Token refreshed, retrying auth...")
+        state = %{state | config: new_config}
+        do_auth(state)
+
+      {:error, refresh_reason} ->
+        Logger.warning(
+          "[Longbridge.#{state.type}] Token refresh failed: #{inspect(refresh_reason)}"
+        )
+
+        {:error, {:auth_failed_and_refresh_failed, refresh_reason}}
+    end
+  end
+
   defp do_auth(state) do
     token = state.config.token
 
     if token do
-      auth_body = %Ctrl.AuthRequest{
-        token: token,
-        metadata: %{}
-      }
-
-      {:ok, iodata, _size} = Protox.encode(auth_body)
-
-      header = %Header{
-        type: :request,
-        verify: false,
-        gzip: false,
-        body_length: 0,
-        cmd_code: Protocol.cmd_auth(),
-        request_id: next_request_id(state),
-        timeout: @auth_timeout
-      }
-
-      req_id = header.request_id
-      data = Protocol.pack(header, IO.iodata_to_binary(iodata))
+      {data, req_id} = build_auth_request(state, token)
       :ok = :gen_tcp.send(state.socket, data)
-
       state = %{state | request_id: req_id}
 
       # Wait synchronously for auth response
       receive do
         {:tcp, socket, raw} ->
-          state = %{state | socket: socket}
-
-          case Protocol.unpack(raw) do
-            {:ok, resp_header, body, _rest} ->
-              if resp_header.cmd_code == Protocol.cmd_auth() and resp_header.status_code == 0 do
-                auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
-                {:ok, %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}}
-              else
-                {:error, {:auth_failed, resp_header.status_code}}
-              end
-
-            {:error, reason} ->
-              {:error, {:unpack, reason}}
-          end
+          handle_auth_response(%{state | socket: socket}, raw)
       after
         @auth_timeout -> {:error, :auth_timeout}
       end
     else
       {:error, :no_token}
+    end
+  end
+
+  defp build_auth_request(state, token) do
+    auth_body = %Ctrl.AuthRequest{
+      token: token,
+      metadata: %{}
+    }
+
+    {:ok, iodata, _size} = Protox.encode(auth_body)
+    req_id = next_request_id(state)
+
+    header = %Header{
+      type: :request,
+      verify: false,
+      gzip: false,
+      body_length: 0,
+      cmd_code: Protocol.cmd_auth(),
+      request_id: req_id,
+      timeout: @auth_timeout
+    }
+
+    data = Protocol.pack(header, IO.iodata_to_binary(iodata))
+    {data, req_id}
+  end
+
+  defp handle_auth_response(state, raw) do
+    case Protocol.unpack(raw) do
+      {:ok, resp_header, body, rest} ->
+        if resp_header.cmd_code == Protocol.cmd_auth() and resp_header.status_code == 0 do
+          auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
+          state = %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}
+          state = process_data(state, rest)
+          {:ok, state}
+        else
+          {:error, {:auth_failed, resp_header.status_code}}
+        end
+
+      {:error, reason} ->
+        {:error, {:unpack, reason}}
     end
   end
 
@@ -358,6 +561,23 @@ defmodule Longbridge.Connection do
   defp next_request_id(state) do
     id = state.request_id + 1
     if id > 4_294_967_295, do: 1, else: id
+  end
+
+  defp schedule_idle_timer(%{config: %{idle_timeout: timeout}} = state) when timeout > 0 do
+    _ = if(state.idle_timer, do: Process.cancel_timer(state.idle_timer))
+    timer = Process.send_after(self(), :idle_timeout, timeout)
+    %{state | idle_timer: timer}
+  end
+
+  defp schedule_idle_timer(state), do: state
+
+  defp cancel_idle_timer(state) do
+    if state.idle_timer do
+      _ = Process.cancel_timer(state.idle_timer)
+      %{state | idle_timer: nil}
+    else
+      state
+    end
   end
 
   defp broadcast(state, message) do

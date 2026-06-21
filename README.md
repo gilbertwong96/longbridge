@@ -58,11 +58,76 @@ end
 | Field | Default | Notes |
 | --- | --- | --- |
 | `token` | `nil` | OAuth access token. **Required**; `Connection` stops with `{:error, :no_token}` if nil. |
-| `app_key` / `app_secret` | `nil` | Reserved for future signing flows. |
+| `app_key` / `app_secret` | `nil` | App credentials (used to sign HTTP requests, e.g. for token refresh). |
+| `expired_at` | `nil` | Unix timestamp when `token` expires. Set after `refresh_access_token/2`. |
+| `http_url` | `https://openapi.longbridge.{com,cn}` | HTTP API base, used by `refresh_access_token/2`. |
 | `china` | `false` | When true, switch to `.longbridge.cn` endpoints for mainland connectivity. |
 | `quote_host` / `quote_port` | `openapi-quote.longbridge.{com,cn}`:2020 | Override for staging or proxies. |
 | `trade_host` / `trade_port` | `openapi-trade.longbridge.{com,cn}`:2020 | Same. |
 | `transport` | `:tcp` | `:websocket` is reserved for a future WebSocket transport. |
+
+## Refreshing the access token (legacy API key)
+
+The legacy API Key `access_token` expires after 90 days. To obtain a
+new one, call `Config.refresh_access_token/2` and use the returned
+config. The new `token` and `expired_at` are set on the result.
+
+```elixir
+{:ok, new_config} = Longbridge.Config.refresh_access_token(config)
+{:ok, quote_ctx} = Longbridge.QuoteContext.start_link(new_config)
+```
+
+Internally this calls Longbridge's `GET /v1/token/refresh` HTTP
+endpoint, signed with HMAC-SHA256 using the same scheme as the
+official Python / Go SDKs. No new dependency beyond the existing
+`finch` (HTTP) and `jason` (JSON) deps is required.
+
+## OAuth 2.0 (browser flow)
+
+```elixir
+# Desktop / interactive (browser available)
+{:ok, config} = Longbridge.OAuth.authorize("your-client-id")
+{:ok, ctx} = Longbridge.QuoteContext.start_link(config)
+```
+
+The first call opens a browser, exchanges the code for a token, and
+persists it to `~/.longbridge/openapi/tokens/<client_id>`. Subsequent
+calls reuse the cached token transparently.
+
+If you don't have a `client_id` yet, register one first:
+
+```elixir
+{:ok, client_id} = Longbridge.OAuth.register_client("My App")
+```
+
+## OAuth 2.0 (headless server)
+
+OAuth 2.0 in Longbridge only supports `authorization_code` (browser
+required) and `refresh_token` grants. For server-side programs,
+authorize once on a developer's workstation, then copy the token
+file to the server:
+
+```
+# On dev machine (browser available)
+Longbridge.OAuth.authorize("your-client-id")
+# → writes ~/.longbridge/openapi/tokens/<client_id>
+
+# Copy that file to the server (same path)
+
+# On server
+{:ok, config} = Longbridge.OAuth.load_token("your-client-id")
+```
+
+`load_token/1` auto-refreshes expired tokens via the `refresh_token`
+grant. The `Longbridge.OAuth` module's full API:
+
+- `authorize/2` — full browser flow
+- `load_token/1` — load from disk, auto-refresh if expired
+- `export_token/1` — export for cross-machine copy / secret manager
+- `refresh_token/2` — manual refresh
+- `register_client/1` — register a new OAuth client
+- `authorize_url/5` — build the authorization URL (testable)
+- `pkce_challenge/1` — PKCE S256 helper (testable)
 | `gzip_threshold` | `1024` bytes | Bodies ≥ this size will be gzipped on send. |
 | `heartbeat_interval` | `15_000` ms | Client→server keep-alive cadence. |
 | `request_timeout` | `10_000` ms | Per-request timeout. |

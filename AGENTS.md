@@ -9,7 +9,10 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | Module | Role |
 | --- | --- |
 | `Longbridge` | Top-level docs-only module. Public entry point. |
-| `Longbridge.Config` | Endpoint + auth configuration struct. |
+| `Longbridge.Application` | Supervision tree. Starts the `Longbridge.Finch` HTTP pool. |
+| `Longbridge.Config` | Endpoint + auth configuration struct. `refresh_access_token/2` for legacy API key flow. |
+| `Longbridge.HTTPClient` | Signed HTTP requests via `Longbridge.Finch`. Used by `Config.refresh_access_token/2`; reusable for arbitrary Longbridge REST calls. |
+| `Longbridge.OAuth` | OAuth 2.0 Authorization Code flow with PKCE. Browser flow (`authorize/2`) and headless server flow (`load_token/1`, `export_token/1`, `refresh_token/2`). |
 | `Longbridge.Protocol` | Wire-format constants + `pack/2` / `unpack/1` for whole packets. |
 | `Longbridge.Protocol.Header` | Per-packet header encode/decode (request / response / push layouts). |
 | `Longbridge.Connection` | TCP GenServer. Owns the socket, handshake, auth, heartbeat, request/response pairing, push dispatch. |
