@@ -60,6 +60,26 @@ defmodule Longbridge.HTTPClient do
   end
 
   @doc """
+  Obtains a one-time-password (OTP) token for socket authentication.
+
+  The Longbridge socket protocol requires an OTP token obtained via
+  `GET /v1/socket/token`. The legacy access token (`config.token`)
+  cannot be used directly for socket auth — it must be exchanged
+  for an OTP first.
+
+  Returns `{:ok, otp_token}` or `{:error, reason}`.
+  """
+  @spec get_socket_token(Config.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def get_socket_token(%Config{} = config, opts \\ []) do
+    case request_json(:get, "/v1/socket/token", "", config, opts) do
+      {:ok, %{"otp" => otp}} -> {:ok, otp}
+      {:ok, _} -> {:error, {:missing_otp, "socket token response missing otp field"}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   Performs a signed HTTP request to the Longbridge REST API.
 
   Signs the request with HMAC-SHA256 using `config.app_secret` and

@@ -8,25 +8,21 @@ defmodule LongbridgeTest do
 
   test "config defaults" do
     config = Config.new()
-    assert config.quote_host == "openapi-quote.longbridge.com"
-    assert config.quote_port == 2020
-    assert config.trade_host == "openapi-trade.longbridge.com"
-    assert config.trade_port == 2020
-    assert config.transport == :tcp
+    assert config.quote_ws_url == "wss://openapi-quote.longbridge.com"
+    assert config.trade_ws_url == "wss://openapi-trade.longbridge.com"
     assert config.china == false
     assert config.heartbeat_interval == 15_000
   end
 
   test "config china endpoints" do
     config = Config.new(china: true)
-    assert config.quote_host == "openapi-quote.longbridge.cn"
-    assert config.trade_host == "openapi-trade.longbridge.cn"
+    assert config.quote_ws_url == "wss://openapi-quote.longbridge.cn"
+    assert config.trade_ws_url == "wss://openapi-trade.longbridge.cn"
   end
 
   test "config custom endpoints" do
-    config = Config.new(quote_host: "custom.example.com", quote_port: 9999)
-    assert config.quote_host == "custom.example.com"
-    assert config.quote_port == 9999
+    config = Config.new(quote_ws_url: "wss://custom.example.com")
+    assert config.quote_ws_url == "wss://custom.example.com"
   end
 
   test "protocol handshake bytes" do

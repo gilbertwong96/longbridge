@@ -1,9 +1,8 @@
 defmodule Longbridge.Connection.Session do
   @moduledoc false
-  # Transport-agnostic session logic shared by `Longbridge.Connection` (TCP)
-  # and `Longbridge.WSConnection` (WebSocket). Pure functions only — no
-  # socket I/O. Both transport modules delegate here for protocol-level
-  # behaviour (dispatch, reconnect, idle, broadcast, etc.).
+  # Session logic shared by `Longbridge.WSConnection`. Pure functions
+  # only — no socket I/O. The transport module delegates here for
+  # protocol-level behaviour (dispatch, reconnect, idle, broadcast, etc.).
 
   require Logger
 
@@ -69,9 +68,10 @@ defmodule Longbridge.Connection.Session do
   @doc false
   def dispatch_response(state, header, body) do
     req_id = header.request_id
+    pending = Map.get(state, :pending, %{})
 
-    case Map.pop(state.pending, req_id) do
-      {%{from: from, ref: ref}, state} ->
+    case Map.pop(pending, req_id) do
+      {%{from: from, ref: ref}, updated_pending} ->
         _ = Process.cancel_timer(ref)
 
         if header.status_code == Protocol.status_success() do
@@ -80,9 +80,9 @@ defmodule Longbridge.Connection.Session do
           GenServer.reply(from, {:error, {:server_error, header.status_code, body}})
         end
 
-        state
+        %{state | pending: updated_pending}
 
-      {nil, state} ->
+      {nil, _} ->
         Logger.warning("[Longbridge.#{state.type}] Unexpected response for req_id: #{req_id}")
         state
     end
@@ -102,7 +102,9 @@ defmodule Longbridge.Connection.Session do
 
   @doc false
   def fail_pending_requests(state, reason) do
-    Enum.each(state.pending, fn {_req_id, %{from: from, ref: ref}} ->
+    pending = Map.get(state, :pending, %{})
+
+    Enum.each(pending, fn {_req_id, %{from: from, ref: ref}} ->
       _ = if(ref, do: Process.cancel_timer(ref))
       GenServer.reply(from, {:error, {:disconnected, reason}})
     end)
@@ -111,7 +113,7 @@ defmodule Longbridge.Connection.Session do
   end
 
   @doc false
-  def schedule_reconnect(state, _reason) do
+  def schedule_reconnect(state, reason) do
     if state.reconnect_attempts >= @max_reconnect_attempts do
       Logger.error(
         "[Longbridge.#{state.type}] Giving up after #{@max_reconnect_attempts} reconnect attempts"
@@ -126,7 +128,7 @@ defmodule Longbridge.Connection.Session do
 
       Logger.info(
         "[Longbridge.#{state.type}] Reconnecting in #{div(delay, 1000)}s " <>
-          "(attempt #{state.reconnect_attempts}/#{@max_reconnect_attempts})"
+          "(attempt #{state.reconnect_attempts}/#{@max_reconnect_attempts}, reason: #{inspect(reason)})"
       )
 
       state
@@ -141,6 +143,13 @@ defmodule Longbridge.Connection.Session do
   end
 
   @doc false
+  def fatal_error?({:auth_failed, _status}), do: true
+  def fatal_error?({:auth_failed_and_refresh_failed, _reason}), do: true
+  def fatal_error?({:unpack, _reason}), do: true
+  def fatal_error?(:no_token), do: true
+  def fatal_error?(_), do: false
+
+  @doc false
   def schedule_idle_timer(%{config: %{idle_timeout: timeout}} = state) when timeout > 0 do
     _ = if(state.idle_timer, do: Process.cancel_timer(state.idle_timer))
     timer = Process.send_after(self(), :idle_timeout, timeout)
@@ -151,7 +160,7 @@ defmodule Longbridge.Connection.Session do
 
   @doc false
   def cancel_idle_timer(state) do
-    if state.idle_timer do
+    if Map.get(state, :idle_timer) do
       _ = Process.cancel_timer(state.idle_timer)
       %{state | idle_timer: nil}
     else

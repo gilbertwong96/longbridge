@@ -16,8 +16,8 @@ defmodule Longbridge.Config do
 
   By default, the international endpoints are used:
 
-  - Quote: `tcp://openapi-quote.longbridge.com:2020`
-  - Trade: `tcp://openapi-trade.longbridge.com:2020`
+  - Quote: `wss://openapi-quote.longbridge.com`
+  - Trade: `wss://openapi-trade.longbridge.com`
 
   For mainland China, set `china: true`:
 
@@ -32,14 +32,9 @@ defmodule Longbridge.Config do
     :app_secret,
     :expired_at,
     :china,
-    :quote_host,
-    :quote_port,
-    :trade_host,
-    :trade_port,
     :quote_ws_url,
     :trade_ws_url,
     :http_url,
-    :transport,
     :gzip_threshold,
     heartbeat_interval: 15_000,
     request_timeout: 10_000,
@@ -52,27 +47,20 @@ defmodule Longbridge.Config do
           app_secret: String.t() | nil,
           expired_at: non_neg_integer() | nil,
           china: boolean(),
-          quote_host: String.t(),
-          quote_port: non_neg_integer(),
-          trade_host: String.t(),
-          trade_port: non_neg_integer(),
           quote_ws_url: String.t() | nil,
           trade_ws_url: String.t() | nil,
           http_url: String.t(),
-          transport: :tcp | :websocket,
           gzip_threshold: non_neg_integer() | nil,
           heartbeat_interval: non_neg_integer(),
           request_timeout: non_neg_integer(),
           idle_timeout: non_neg_integer()
         }
 
-  @default_quote_host "openapi-quote.longbridge.com"
-  @default_quote_port 2020
-  @default_trade_host "openapi-trade.longbridge.com"
-  @default_trade_port 2020
+  @default_quote_ws_url "wss://openapi-quote.longbridge.com"
+  @default_trade_ws_url "wss://openapi-trade.longbridge.com"
 
-  @default_quote_host_cn "openapi-quote.longbridge.cn"
-  @default_trade_host_cn "openapi-trade.longbridge.cn"
+  @default_quote_ws_url_cn "wss://openapi-quote.longbridge.cn"
+  @default_trade_ws_url_cn "wss://openapi-trade.longbridge.cn"
 
   @default_http_url "https://openapi.longbridge.com"
   @default_http_url_cn "https://openapi.longbridge.cn"
@@ -86,11 +74,8 @@ defmodule Longbridge.Config do
   - `:app_key` — Application key
   - `:app_secret` — Application secret
   - `:china` — Use mainland China endpoints (default: false)
-  - `:transport` — `:tcp` (default) or `:websocket`
-  - `:quote_host` — Override quote server host
-  - `:quote_port` — Override quote server port
-  - `:trade_host` — Override trade server host
-  - `:trade_port` — Override trade server port
+  - `:quote_ws_url` — Override quote WebSocket URL
+  - `:trade_ws_url` — Override trade WebSocket URL
   - `:gzip_threshold` — Min body size for gzip compression (bytes)
   - `:heartbeat_interval` — Heartbeat interval in ms (default: 15000)
   - `:request_timeout` — Request timeout in ms (default: 10000)
@@ -99,33 +84,62 @@ defmodule Longbridge.Config do
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
     china = Keyword.get(opts, :china, false)
-
-    {default_quote_host, default_trade_host, default_http_url} =
-      if china do
-        {@default_quote_host_cn, @default_trade_host_cn, @default_http_url_cn}
-      else
-        {@default_quote_host, @default_trade_host, @default_http_url}
-      end
+    defaults = region_defaults(china)
 
     %__MODULE__{
-      token: Keyword.get(opts, :token),
-      app_key: Keyword.get(opts, :app_key),
-      app_secret: Keyword.get(opts, :app_secret),
-      expired_at: Keyword.get(opts, :expired_at),
       china: china,
-      transport: Keyword.get(opts, :transport, :tcp),
-      quote_host: Keyword.get(opts, :quote_host, default_quote_host),
-      quote_port: Keyword.get(opts, :quote_port, @default_quote_port),
-      trade_host: Keyword.get(opts, :trade_host, default_trade_host),
-      trade_port: Keyword.get(opts, :trade_port, @default_trade_port),
-      quote_ws_url: Keyword.get(opts, :quote_ws_url),
-      trade_ws_url: Keyword.get(opts, :trade_ws_url),
-      http_url: Keyword.get(opts, :http_url, default_http_url),
-      gzip_threshold: Keyword.get(opts, :gzip_threshold, 1024),
-      heartbeat_interval: Keyword.get(opts, :heartbeat_interval, 15_000),
-      request_timeout: Keyword.get(opts, :request_timeout, 10_000),
-      idle_timeout: Keyword.get(opts, :idle_timeout, 60_000)
+      token: opts[:token],
+      app_key: opts[:app_key],
+      app_secret: opts[:app_secret],
+      expired_at: opts[:expired_at],
+      quote_ws_url: opts[:quote_ws_url] || defaults[:quote_ws_url],
+      trade_ws_url: opts[:trade_ws_url] || defaults[:trade_ws_url],
+      http_url: opts[:http_url] || defaults[:http_url],
+      gzip_threshold: opts[:gzip_threshold] || 1024,
+      heartbeat_interval: opts[:heartbeat_interval] || 15_000,
+      request_timeout: opts[:request_timeout] || 10_000,
+      idle_timeout: opts[:idle_timeout] || 60_000
     }
+  end
+
+  defp region_defaults(true) do
+    [
+      http_url: @default_http_url_cn,
+      quote_ws_url: @default_quote_ws_url_cn,
+      trade_ws_url: @default_trade_ws_url_cn
+    ]
+  end
+
+  defp region_defaults(false) do
+    [
+      http_url: @default_http_url,
+      quote_ws_url: @default_quote_ws_url,
+      trade_ws_url: @default_trade_ws_url
+    ]
+  end
+
+  @doc """
+  Fetches a one-time-password (OTP) for socket authentication.
+
+  The Longbridge socket protocol requires an OTP obtained via
+  `GET /v1/socket/token`. Returns a new config with the OTP set
+  as the `token` field, suitable for passing to `QuoteContext`
+  or `TradeContext`.
+  """
+  @spec with_socket_token(t()) :: {:ok, t()} | {:error, term()}
+  def with_socket_token(%__MODULE__{app_key: nil} = config), do: {:ok, config}
+  def with_socket_token(%__MODULE__{app_secret: nil} = config), do: {:ok, config}
+
+  def with_socket_token(%__MODULE__{token: token} = config)
+      when is_binary(token) and byte_size(token) < 100 do
+    {:ok, config}
+  end
+
+  def with_socket_token(%__MODULE__{} = config) do
+    case Longbridge.HTTPClient.get_socket_token(config) do
+      {:ok, otp} -> {:ok, %{config | token: otp}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -149,9 +163,6 @@ defmodule Longbridge.Config do
       {:ok, new_config} =
         config
         |> Longbridge.Config.refresh_access_token()
-
-  Updates the `http_url` if the response contains a different endpoint
-  (rare; only when the SDK region auto-detection changes).
   """
   @spec refresh_access_token(t(), keyword()) :: {:ok, t()} | {:error, term()}
   def refresh_access_token(%__MODULE__{} = config, opts \\ []) do

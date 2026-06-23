@@ -4,7 +4,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 
 ## Project shape
 
-`longbridge` is an Elixir client for the [Longbridge OpenAPI](https://open.longbridge.com) trading platform. The codebase is a hand-written binary protocol layer (the wire format is a custom Protobuf over TCP) with one GenServer per connection and a context wrapper per endpoint.
+`longbridge` is an Elixir client for the [Longbridge OpenAPI](https://open.longbridge.com) trading platform. The codebase is a hand-written binary protocol layer (the wire format is a custom Protobuf over WebSocket) with one GenServer per connection and a context wrapper per endpoint.
 
 | Module | Role |
 | --- | --- |
@@ -14,7 +14,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.AssetContext` | Account statement download. HTTP-only. |
 | `Longbridge.CalendarContext` | Financial calendar (earnings, dividends, IPOs, macro, closures). HTTP-only. |
 | `Longbridge.Config` | Endpoint + auth configuration struct. `refresh_access_token/2` for legacy API key flow. |
-| `Longbridge.Connection` | TCP GenServer. Owns the socket, handshake, auth, heartbeat, request/response pairing, push dispatch. |
+| `Longbridge.Connection.Session` | Transport-agnostic session logic (reconnect, idle, broadcast, dispatch). Pure functions, no socket I/O. |
 | `Longbridge.ContentContext` | News, community topics, announcements. HTTP-only. |
 | `Longbridge.DCAContext` | Dollar-cost averaging plan management. HTTP-only. |
 | `Longbridge.FundamentalContext` | Financial reports, analyst ratings, dividends, valuation, shareholders. HTTP-only. |
@@ -28,6 +28,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
 | `Longbridge.SharelistContext` | Community sharelist management. HTTP-only. |
 | `Longbridge.TradeContext` | Public API for the trade endpoint — orders, positions, account, executions, push. |
+| `Longbridge.WSConnection` | WebSocket GenServer. Owns the socket, WS upgrade, auth, heartbeat, request/response pairing, push dispatch. |
 
 ## Quality gate (source of truth)
 
@@ -63,8 +64,8 @@ mix docs                # generate ExDoc HTML
 - **Handshake is two fixed bytes:** `<<0b00010001, 0b00001001>>` (version=1, codec=protobuf, platform=OpenAPI=9). See `Longbridge.Protocol.handshake/0`.
 - **Proto dependency is vendored under `protos/`** and tracks the upstream `longbridge/openapi-protobufs` git dep pinned to `gen/go/v0.7.0`. Do **not** hand-edit the `.proto` files — to upgrade, bump the tag in `mix.exs` and re-run `cp deps/openapi_protobuf_specs/{control,quote,trade}/*.proto protos/`.
 - **Generated proto modules live at:** `Longbridge.Control.V1.*`, `Longbridge.Quote.V1.*`, `Longbridge.Trade.V1.*`. Adding a new proto message means adding it to the right upstream `.proto` and re-vendoring — never define a `Longbridge.Foo.V1.*` struct by hand in this repo.
-- **Connection ownership:** `Longbridge.Connection` is the only module that calls `:gen_tcp.send/2` / receives `:tcp` messages. Contexts (`QuoteContext` / `TradeContext`) wrap a connection pid and forward requests to it. Push data is delivered to the *context's* caller process, not the connection's parent, via `Longbridge.Connection.subscribe_push/2`.
-- **Auth is synchronous:** the connection process does a blocking `receive` for the auth response inside `do_auth/1`. Don't add a `handle_info({:tcp, _, _}, ...)` clause that can race the auth handshake.
+- **Connection ownership:** `Longbridge.WSConnection` is the only module that calls `:gen_tcp.send/2` / receives `:tcp` messages. Contexts (`QuoteContext` / `TradeContext`) wrap a connection pid and forward requests to it. Push data is delivered to the *context's* caller process, not the connection's parent, via `Longbridge.WSConnection.subscribe_push/2`.
+- **Auth is synchronous:** the WSConnection process does a blocking `receive` for the auth response inside `do_auth/1`. Don't add a `handle_info({:tcp, _, _}, ...)` clause that can race the auth handshake.
 
 ## Code conventions
 
@@ -93,5 +94,5 @@ There are **no integration tests** — the SDK is exercised against a real Longb
 
 - `mix ci` fails on step 1 (`compile --warnings-as-errors`) — usually a missing `body_length: 0` in a new `%Longbridge.Protocol.Header{...}` literal (see `connection.ex:118,186,244` for the pattern).
 - `mix ci` fails on step 7 (`dialyzer`) — usually a header field with the wrong nullable type. `Longbridge.Protocol.Header.t/0` declares `request_id`, `timeout`, `status_code` as `non_neg_integer() | nil` because each packet type only sets the fields it carries.
-- Push data never arrives — check that the caller process has `Longbridge.Connection.subscribe_push/2` registered (the contexts do this automatically, but custom consumers need to opt in).
+- Push data never arrives — check that the caller process has `Longbridge.WSConnection.subscribe_push/2` registered (the contexts do this automatically, but custom consumers need to opt in).
 - Auth hangs forever — the `Longbridge.Config.token` is `nil`; `do_auth/1` returns `{:error, :no_token}` and the GenServer stops. Set the token in your config or use a mock for testing.

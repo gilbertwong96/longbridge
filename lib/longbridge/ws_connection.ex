@@ -2,9 +2,8 @@ defmodule Longbridge.WSConnection do
   @moduledoc """
   WebSocket connection process for the Longbridge protocol.
 
-  Mirrors `Longbridge.Connection` but transports the same binary
-  protocol frames over a WebSocket connection (used when `:transport`
-  is set to `:websocket` in the config).
+  Manages a WebSocket connection to a Longbridge endpoint,
+  handling handshake, auth, heartbeat, request/response pairing, and push dispatch.
 
   Wire-format details:
     * Each protocol packet is wrapped as a 32-bit-big-endian length
@@ -13,9 +12,11 @@ defmodule Longbridge.WSConnection do
       length-prefixed packets concatenated together; this module
       splits them on receive.
 
-  All other behaviour — handshake, auth with retry, request/response
-  pairing, push dispatch, heartbeat, idle timeout, reconnection with
-  exponential backoff — is identical to `Longbridge.Connection`.
+  ## Handshake
+
+  WebSocket handshake is sent via URL query parameters
+  (`?version=1&codec=1&platform=9`) per the Longbridge spec, rather
+  than the 2-byte binary handshake used by TCP connections.
   """
 
   use GenServer
@@ -27,6 +28,7 @@ defmodule Longbridge.WSConnection do
   alias Longbridge.Protocol.Header
   alias Mint.HTTP
   alias Mint.WebSocket
+  import Mint.HTTP, only: [put_private: 3]
 
   @handshake_timeout 5_000
   @auth_timeout 10_000
@@ -65,17 +67,11 @@ defmodule Longbridge.WSConnection do
     type = Keyword.fetch!(opts, :type)
     parent = Keyword.fetch!(opts, :parent)
 
-    {ws_url, _ws_path} =
-      case type do
-        :quote -> {config.quote_ws_url, "/v2"}
-        :trade -> {config.trade_ws_url, "/v2"}
-      end
-
     state = %{
       config: config,
       type: type,
-      ws_url: ws_url,
-      socket: nil,
+      ws_url: ws_url_for(config, type),
+      ws_host: nil,
       mint_conn: nil,
       websocket: nil,
       request_ref: nil,
@@ -95,45 +91,67 @@ defmodule Longbridge.WSConnection do
         end)
     }
 
-    case do_connect(state) do
+    case do_connect_and_auth(state) do
       {:ok, state} ->
-        state = %{state | connection_state: :handshaking}
-        {:ok, state, {:continue, :handshake}}
+        {:ok, state}
 
-      {:error, reason} ->
-        _ = schedule_reconnect(state, reason)
+      {:error, reason, state} ->
+        Logger.warning("[Longbridge.#{state.type}] Auth failed: #{inspect(reason)}")
+        state = cleanup_socket(state)
+        state = %{state | connection_state: :disconnected, session_id: nil, buffer: <<>>}
+        broadcast(state, {:disconnected, reason})
+        state = maybe_reconnect(state, reason)
         {:ok, state}
     end
   end
 
-  @impl true
-  def handle_continue(:handshake, state) do
-    case do_handshake(state) do
+  # Shared by init and handle_info(:reconnect, ...).
+  # Connects, upgrades, and authenticates in a single blocking flow.
+  # Returns {:ok, state} on success, or {:error, reason, state} on failure.
+  defp do_connect_and_auth(state) do
+    case fetch_socket_token(state) do
       {:ok, state} ->
-        state = %{state | connection_state: :authenticating}
-        {:noreply, state, {:continue, :auth}}
+        do_connect_and_auth_after_token(state)
 
       {:error, reason} ->
-        Logger.warning("[Longbridge.#{state.type}] Handshake failed: #{inspect(reason)}")
-        state = handle_connection_failure(state, reason)
-        {:noreply, state}
+        {:error, reason, state}
     end
   end
 
-  @impl true
-  def handle_continue(:auth, state) do
-    case Session.do_auth_with_retry(state, &do_auth/1) do
-      {:ok, state} ->
-        state = %{state | connection_state: :active, reconnect_attempts: 0}
-        state = schedule_idle_timer(state)
-        Logger.info("[Longbridge.#{state.type}] Authenticated, session: #{state.session_id}")
-        broadcast(state, {:connected, state.session_id})
-        {:noreply, state}
+  defp fetch_socket_token(state) do
+    case Longbridge.Config.with_socket_token(state.config) do
+      {:ok, new_config} ->
+        {:ok, %{state | config: new_config}}
 
       {:error, reason} ->
-        Logger.warning("[Longbridge.#{state.type}] Auth failed: #{inspect(reason)}")
-        state = handle_connection_failure(state, reason)
-        {:noreply, state}
+        Logger.warning(
+          "[Longbridge.#{state.type}] Failed to fetch socket OTP: #{inspect(reason)}"
+        )
+
+        {:error, {:otp_fetch_failed, reason}}
+    end
+  end
+
+  defp do_connect_and_auth_after_token(state) do
+    case do_connect(state) do
+      {:ok, state} ->
+        case Session.do_auth_with_retry(%{state | connection_state: :authenticating}, &do_auth/1) do
+          {:ok, state} ->
+            state = %{state | connection_state: :active, reconnect_attempts: 0}
+            state = schedule_idle_timer(state)
+            state = activate_socket(state)
+            Logger.info("[Longbridge.#{state.type}] Authenticated, session: #{state.session_id}")
+            broadcast(state, {:connected, state.session_id})
+            {:ok, state}
+
+          {:error, reason} ->
+            {:error, reason, state}
+        end
+
+      {:error, reason} ->
+        Logger.error("[Longbridge.#{state.type}] WS connect failed: #{inspect(reason)}")
+        state = schedule_reconnect(state, reason)
+        {:error, reason, state}
     end
   end
 
@@ -146,17 +164,16 @@ defmodule Longbridge.WSConnection do
         type: :request,
         verify: false,
         gzip: false,
-        body_length: byte_size(body),
+        body_length: 0,
         cmd_code: cmd_code,
         request_id: req_id,
         timeout: timeout
       }
 
       ref = Process.send_after(self(), {:request_timeout, req_id}, timeout)
-      packet = Protocol.pack(header, body)
-      encoded = encode_frame(IO.iodata_to_binary(packet))
+      raw_packet = IO.iodata_to_binary(Protocol.pack(header, body))
 
-      case send_frame(state, encoded) do
+      case send_frame(state, raw_packet) do
         {:ok, state} ->
           {:noreply,
            %{
@@ -187,21 +204,27 @@ defmodule Longbridge.WSConnection do
   @impl true
   def handle_info(:idle_timeout, state) do
     Logger.warning("[Longbridge.#{state.type}] Connection idle timeout")
-
-    do_disconnect(state, :idle_timeout)
+    {:noreply, do_disconnect(state, :idle_timeout)}
   end
 
   @impl true
   def handle_info(:reconnect, state) do
     state = %{state | reconnect_timer: nil}
 
-    case do_connect(state) do
+    case do_connect_and_auth(state) do
       {:ok, state} ->
-        state = %{state | connection_state: :handshaking}
-        {:noreply, state, {:continue, :handshake}}
+        {:noreply, state}
 
-      {:error, reason} ->
-        _ = schedule_reconnect(state, reason)
+      {:error, reason, state} ->
+        Logger.warning("[Longbridge.#{state.type}] Reconnect auth failed: #{inspect(reason)}")
+
+        state =
+          state
+          |> cleanup_socket()
+          |> then(&%{&1 | connection_state: :disconnected, session_id: nil, buffer: <<>>})
+
+        broadcast(state, {:disconnected, reason})
+        state = maybe_reconnect(state, reason)
         {:noreply, state}
     end
   end
@@ -220,9 +243,12 @@ defmodule Longbridge.WSConnection do
 
   @impl true
   def handle_info(:heartbeat, state) do
-    if state.connection_state == :active do
-      _ = send_heartbeat(state)
-    end
+    state =
+      if state.connection_state == :active do
+        send_heartbeat(state)
+      else
+        state
+      end
 
     Process.send_after(self(), :heartbeat, state.config.heartbeat_interval)
     {:noreply, state}
@@ -232,7 +258,12 @@ defmodule Longbridge.WSConnection do
   def handle_info(message, state) do
     case WebSocket.stream(state.mint_conn, message) do
       {:ok, mint_conn, responses} ->
-        state = state |> Map.put(:mint_conn, mint_conn) |> handle_responses(responses)
+        state =
+          state
+          |> Map.put(:mint_conn, mint_conn)
+          |> activate_socket()
+          |> handle_responses(responses)
+
         {:noreply, state}
 
       {:error, mint_conn, reason, _responses} ->
@@ -246,10 +277,9 @@ defmodule Longbridge.WSConnection do
 
   @impl true
   def terminate(_reason, state) do
-    state = cancel_idle_timer(state)
-
-    cancel_reconnect_timer(state)
-    _ = cleanup_socket(state)
+    _ = if Map.has_key?(state, :idle_timer), do: cancel_idle_timer(state)
+    _ = if Map.has_key?(state, :reconnect_timer), do: cancel_reconnect_timer(state)
+    _ = if Map.get(state, :mint_conn), do: cleanup_socket(state)
     :ok
   end
 
@@ -262,55 +292,103 @@ defmodule Longbridge.WSConnection do
   end
 
   defp do_connect(state) do
-    {scheme, host, port, path} = parse_ws_url(state.ws_url, "/v2")
+    {scheme, host, port} = parse_ws_url(state.ws_url)
     http_scheme = if scheme == :wss, do: :https, else: :http
 
-    case HTTP.connect(http_scheme, host, port, mode: :passive) do
+    case HTTP.connect(http_scheme, host, port, mode: :passive, protocols: [:http1]) do
       {:ok, mint_conn} ->
-        case WebSocket.upgrade(scheme, mint_conn, path, []) do
-          {:ok, mint_conn, ref} ->
-            state = %{state | mint_conn: mint_conn, request_ref: ref}
-            finish_upgrade(state)
-
-          {:error, _mint_conn, reason} ->
-            {:error, {:upgrade, reason}}
-        end
+        do_ws_upgrade(
+          %{state | mint_conn: mint_conn, ws_host: host},
+          scheme
+        )
 
       {:error, reason} ->
         {:error, {:connect, reason}}
     end
   end
 
-  defp finish_upgrade(state) do
-    ref = state.request_ref
+  # Bypass mint_web_socket upgrade and do the WebSocket upgrade manually.
+  # Longbridge uses URL query params for handshake per:
+  # https://open.longbridge.com/docs/socket/protocol/handshake
+  defp do_ws_upgrade(state, scheme) do
+    ws_key = Base.encode64(:crypto.strong_rand_bytes(16))
+    path = "/?version=1&codec=1&platform=9"
 
-    case WebSocket.recv(state.mint_conn, 0, @handshake_timeout) do
-      {:ok, mint_conn, responses} ->
-        state = Map.put(state, :mint_conn, mint_conn)
+    headers = [
+      {"host", state.ws_host},
+      {"upgrade", "websocket"},
+      {"connection", "upgrade"},
+      {"sec-websocket-key", ws_key},
+      {"sec-websocket-version", "13"}
+    ]
 
-        case responses do
-          [{:status, ^ref, status} | _rest] ->
-            state = handle_responses(state, responses, status)
+    # Store the nonce in Mint's private data so WebSocket.new can validate it.
+    mint_conn =
+      state.mint_conn
+      |> put_private(:sec_websocket_key, ws_key)
+      |> put_private(:extensions, [])
+      |> put_private(:scheme, scheme)
 
-            case state.connection_state do
-              :upgrading -> finish_upgrade(state)
-              _ -> {:ok, %{state | connection_state: :upgrading}}
-            end
+    case HTTP.request(mint_conn, "GET", path, headers, nil) do
+      {:ok, mint_conn, ref} ->
+        finish_upgrade(%{state | mint_conn: mint_conn, request_ref: ref})
 
-          _other_responses ->
-            finish_upgrade(state)
-        end
+      {:error, mint_conn, reason} ->
+        _ = HTTP.close(mint_conn)
+        {:error, {:upgrade_request, reason}}
     end
   end
 
-  defp do_handshake(state) do
-    # Send the same 2-byte handshake as TCP — embedded in a WS binary frame.
-    handshake = Protocol.handshake()
-    encoded = encode_frame(IO.iodata_to_binary(handshake))
+  defp finish_upgrade(state) do
+    # Passive mode: read raw data from the SSL socket, then stream it
+    # through Mint to get the HTTP upgrade response.
+    socket = HTTP.get_socket(state.mint_conn)
 
-    case send_frame(state, encoded) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, reason}
+    case socket_recv(socket, 0, @handshake_timeout) do
+      {:ok, data} ->
+        case HTTP.stream(state.mint_conn, socket_msg(socket, data)) do
+          {:ok, mint_conn, responses} ->
+            state = %{state | mint_conn: mint_conn}
+            process_upgrade_response(state, responses)
+
+          {:error, mint_conn, reason, _responses} ->
+            _ = HTTP.close(mint_conn)
+            {:error, {:upgrade_stream, reason}}
+
+          :unknown ->
+            {:error, {:upgrade, :unknown_response}}
+        end
+
+      {:error, reason} ->
+        _ = HTTP.close(state.mint_conn)
+        {:error, {:ssl_recv, reason}}
+    end
+  end
+
+  defp process_upgrade_response(state, responses) do
+    {status, headers} =
+      Enum.reduce(responses, {nil, []}, fn
+        {:status, _ref, s}, {_, h} -> {s, h}
+        {:headers, _ref, h}, {s, _} -> {s, h}
+        _other, acc -> acc
+      end)
+
+    Logger.debug(
+      "[Longbridge.#{state.type}] WS upgrade response: status=#{inspect(status)}, headers=#{inspect(headers)}"
+    )
+
+    if status == 101 do
+      case WebSocket.new(state.mint_conn, state.request_ref, status, headers, mode: :passive) do
+        {:ok, mint_conn, websocket} ->
+          {:ok, %{state | mint_conn: mint_conn, websocket: websocket}}
+
+        {:error, mint_conn, reason} ->
+          Logger.warning("[Longbridge.#{state.type}] WS new failed: #{inspect(reason)}")
+          _ = HTTP.close(mint_conn)
+          {:error, {:upgrade, reason}}
+      end
+    else
+      {:error, {:upgrade, {:bad_status, status}}}
     end
   end
 
@@ -330,10 +408,12 @@ defmodule Longbridge.WSConnection do
     end
   end
 
+  # ── Mint message / response handling ─────────────────────
+
   defp handle_responses(state, responses, status \\ nil)
 
   defp handle_responses(%{request_ref: ref} = state, [{:status, ref, status} | rest], _old) do
-    handle_responses(%{state | connection_state: :upgrading}, rest, status)
+    handle_responses(state, rest, status)
   end
 
   defp handle_responses(
@@ -348,14 +428,14 @@ defmodule Longbridge.WSConnection do
     case WebSocket.new(state.mint_conn, ref, status, [], mode: :passive) do
       {:ok, mint_conn, websocket} ->
         handle_responses(
-          %{state | mint_conn: mint_conn, websocket: websocket, connection_state: :handshaking},
+          %{state | mint_conn: mint_conn, websocket: websocket},
           rest,
           nil
         )
 
       {:error, mint_conn, reason} ->
         state = Map.put(state, :mint_conn, mint_conn)
-        handle_disconnect(state, {:upgrade, reason})
+        do_disconnect(state, {:upgrade, reason})
     end
   end
 
@@ -373,7 +453,7 @@ defmodule Longbridge.WSConnection do
 
       {:error, websocket, reason} ->
         state = %{state | websocket: websocket}
-        handle_disconnect(state, {:decode, reason})
+        do_disconnect(state, {:decode, reason})
     end
   end
 
@@ -386,9 +466,16 @@ defmodule Longbridge.WSConnection do
   defp handle_frames(state, frames) do
     Enum.reduce(frames, state, fn
       {:ping, data}, state ->
-        case send_frame(state, encode_frame(data)) do
-          {:ok, state} -> state
-          {:error, _} -> state
+        # WebSocket native ping/pong for keepalive.
+        case WebSocket.encode(state.websocket, {:pong, data}) do
+          {:ok, websocket, pong_data} ->
+            case WebSocket.stream_request_body(state.mint_conn, state.request_ref, pong_data) do
+              {:ok, mint_conn} -> %{state | websocket: websocket, mint_conn: mint_conn}
+              {:error, _mint_conn, _reason} -> state
+            end
+
+          {:error, _websocket, _reason} ->
+            state
         end
 
       {:pong, _data}, state ->
@@ -407,63 +494,37 @@ defmodule Longbridge.WSConnection do
   end
 
   defp process_binary_frame(state, data) do
-    # Each WS binary message is one or more length-prefixed protocol packets.
-    (state.buffer <> data)
-    |> decode_frames()
-    |> Enum.reduce(state, fn packet, state ->
-      case Protocol.unpack(packet) do
-        {:ok, header, body, _rest} ->
-          dispatch_packet(state, header, body)
-
-        {:error, :incomplete_header} ->
-          # Should not happen — frames are sized. Treat as protocol error.
-          Logger.warning("[Longbridge.#{state.type}] Incomplete header in WS frame")
-          state
-
-        {:error, reason} ->
-          Logger.warning("[Longbridge.#{state.type}] Bad frame: #{inspect(reason)}")
-          state
-      end
-    end)
+    process_data(%{state | buffer: <<>>}, state.buffer <> data)
   end
 
-  # Length-prefix codec: <<length::32-big, payload::binary>>
-  defp encode_frame(payload) when is_binary(payload) do
-    <<byte_size(payload)::32-big, payload::binary>>
-  end
+  # ── WS wire format ───────────────────────────────────────
 
-  defp decode_frames(data), do: do_decode_frames(data, [])
+  # WebSocket binary messages contain raw protocol packets.
+  # WS frame boundaries provide the framing (no 4-byte length prefix).
 
-  defp do_decode_frames(<<>>, acc), do: Enum.reverse(acc)
-
-  defp do_decode_frames(<<size::32-big, rest::binary>>, acc) do
-    decode_one_frame(size, rest, acc)
-  end
-
-  defp decode_one_frame(size, rest, acc) when byte_size(rest) >= size do
-    payload = :binary.part(rest, 0, size)
-    remaining = :binary.part(rest, size, byte_size(rest) - size)
-    do_decode_frames(remaining, [payload | acc])
-  end
-
-  defp decode_one_frame(_size, _rest, acc), do: Enum.reverse(acc)
-
-  # ── Wire format (identical to Longbridge.Connection) ──────
+  # ── Wire format ──────────────────────────────────────────
 
   defp do_auth(state) do
     token = state.config.token
 
     if token do
       {data, req_id} = build_auth_request(state, token)
-      encoded = encode_frame(IO.iodata_to_binary(data))
+      # Send the raw protocol packet as a WS binary message.
+      # The 4-byte length prefix wrapping is handled by WebSocket.encode.
+      raw_packet = IO.iodata_to_binary(data)
 
-      case send_frame(state, encoded) do
+      Logger.debug(
+        "[Longbridge.#{state.type}] Sending auth request (#{byte_size(raw_packet)} bytes)"
+      )
+
+      case send_frame(state, raw_packet) do
         {:ok, state} ->
           state = %{state | request_id: req_id}
-          # Wait for the auth response to arrive as a WS frame.
+          Logger.debug("[Longbridge.#{state.type}] Auth request sent, waiting for response...")
           wait_for_auth_response(state)
 
         {:error, reason} ->
+          Logger.warning("[Longbridge.#{state.type}] send_frame failed: #{inspect(reason)}")
           {:error, reason}
       end
     else
@@ -472,29 +533,93 @@ defmodule Longbridge.WSConnection do
   end
 
   defp wait_for_auth_response(state) do
-    receive do
-      {:ws_packet, packet} ->
-        state = %{state | buffer: state.buffer <> packet}
+    # Passive mode: read raw data from the SSL socket and stream through
+    # Mint to get WebSocket frames until we find the auth response.
+    socket = HTTP.get_socket(state.mint_conn)
 
-        case Protocol.unpack(state.buffer) do
-          {:ok, header, body, rest} ->
-            state = %{state | buffer: rest}
+    case socket_recv(socket, 0, @auth_timeout) do
+      {:ok, data} ->
+        Logger.debug(
+          "[Longbridge.#{state.type}] Received #{byte_size(data)} bytes after auth, hex: #{Base.encode16(data)}"
+        )
 
-            if header.cmd_code == Protocol.cmd_auth() and header.status_code == 0 do
-              auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
-              state = %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}
-              # Process any extra packets bundled into the same TCP frame.
-              state = process_data(state, rest)
-              {:ok, state}
-            else
-              {:error, {:auth_failed, header.status_code}}
-            end
+        case WebSocket.stream(state.mint_conn, socket_msg(socket, data)) do
+          {:ok, mint_conn, responses} ->
+            Logger.debug("[Longbridge.#{state.type}] Stream responses: #{inspect(responses)}")
+            state = %{state | mint_conn: mint_conn}
+            extract_auth_from_responses(state, responses)
 
-          {:error, reason} ->
-            {:error, {:unpack, reason}}
+          {:error, mint_conn, reason, _responses} ->
+            _ = HTTP.close(mint_conn)
+            {:error, {:stream_error, reason}}
+
+          :unknown ->
+            {:error, :unknown_message}
         end
-    after
-      @auth_timeout -> {:error, :auth_timeout}
+
+      {:error, :closed} ->
+        {:error, {:tcp_closed, :during_auth}}
+
+      {:error, reason} ->
+        {:error, {:ssl_recv, reason}}
+    end
+  end
+
+  defp extract_auth_from_responses(state, [{:data, _ref, data} | _rest]) do
+    ws = state.websocket
+
+    case WebSocket.decode(ws, data) do
+      {:ok, websocket, frames} ->
+        state = %{state | websocket: websocket}
+
+        case frames do
+          [{:binary, frame_data} | _] ->
+            parse_auth_frame(state, frame_data)
+
+          _other ->
+            wait_for_auth_response(state)
+        end
+
+      {:error, _websocket, reason} ->
+        {:error, {:decode, reason}}
+    end
+  end
+
+  defp extract_auth_from_responses(state, [{:status, _ref, _status} | rest]) do
+    extract_auth_from_responses(state, rest)
+  end
+
+  defp extract_auth_from_responses(state, [{:headers, _ref, _headers} | rest]) do
+    extract_auth_from_responses(state, rest)
+  end
+
+  defp extract_auth_from_responses(state, [{:done, _ref} | rest]) do
+    extract_auth_from_responses(state, rest)
+  end
+
+  defp extract_auth_from_responses(state, [_other | rest]) do
+    extract_auth_from_responses(state, rest)
+  end
+
+  defp extract_auth_from_responses(state, []) do
+    wait_for_auth_response(state)
+  end
+
+  defp parse_auth_frame(state, frame_data) do
+    # WebSocket binary messages contain the raw protocol packet directly
+    # (no 4-byte length prefix — WS frame boundaries provide framing).
+    case Protocol.unpack(frame_data) do
+      {:ok, header, body, _rest} ->
+        if header.cmd_code == Protocol.cmd_auth() and header.status_code == 0 do
+          auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
+          state = %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}
+          {:ok, state}
+        else
+          {:error, {:auth_failed, header.status_code}}
+        end
+
+      {:error, reason} ->
+        {:error, {:unpack, reason}}
     end
   end
 
@@ -517,50 +642,41 @@ defmodule Longbridge.WSConnection do
   end
 
   defp send_heartbeat(state) do
-    header = %Header{
-      type: :request,
-      verify: false,
-      gzip: false,
-      body_length: 0,
-      cmd_code: Protocol.cmd_heartbeat(),
-      request_id: 0,
-      timeout: 5_000
-    }
+    # WebSocket uses native ping/pong for keepalive per Longbridge spec:
+    # https://open.longbridge.com/docs/socket/diff_ws_tcp
+    case WebSocket.encode(state.websocket, :ping) do
+      {:ok, websocket, data} ->
+        case WebSocket.stream_request_body(state.mint_conn, state.request_ref, data) do
+          {:ok, mint_conn} ->
+            %{state | websocket: websocket, mint_conn: mint_conn}
 
-    timestamp = System.os_time(:millisecond)
-    body = %Ctrl.Heartbeat{timestamp: timestamp}
+          {:error, _mint_conn, _reason} ->
+            state
+        end
 
-    case Protox.encode(body) do
-      {:ok, iodata, _size} ->
-        packet = Protocol.pack(header, IO.iodata_to_binary(iodata))
-        _ = send_frame(state, encode_frame(IO.iodata_to_binary(packet)))
-        :ok
-
-      _ ->
-        :ok
+      {:error, _websocket, _reason} ->
+        state
     end
   end
 
   # ── Packet Processing ────────────────────────────────────
 
-  # WS-specific: each binary message is one or more length-prefixed
-  # protocol packets. (TCP version of this uses Process.unpack-style
-  # streaming buffering instead.)
   defp process_data(state, data) when byte_size(data) == 0, do: state
 
   defp process_data(state, data) do
-    data
-    |> decode_frames()
-    |> Enum.reduce(state, fn packet, state ->
-      case Protocol.unpack(packet) do
-        {:ok, header, body, _rest} -> dispatch_packet(state, header, body)
-        {:error, _reason} -> state
-      end
-    end)
+    case Protocol.unpack(data) do
+      {:ok, header, body, rest} ->
+        state = dispatch_packet(state, header, body)
+        process_data(state, rest)
+
+      {:error, :incomplete_header} ->
+        %{state | buffer: state.buffer <> data}
+
+      {:error, _reason} ->
+        state
+    end
   end
 
-  # WS-specific: server-initiated ping broadcasts as a heartbeat event
-  # for diagnostics. Response/push dispatch is shared via Session.
   defp dispatch_packet(state, %Header{type: :response} = header, body) do
     Session.dispatch_response(state, header, body)
   end
@@ -577,6 +693,33 @@ defmodule Longbridge.WSConnection do
     state
   end
 
+  # ── Socket management ────────────────────────────────────
+
+  defp activate_socket(%{mint_conn: nil} = state), do: state
+
+  defp activate_socket(state) do
+    socket = HTTP.get_socket(state.mint_conn)
+    _ = socket && socket_set_active_once(socket)
+    state
+  end
+
+  defp socket_recv(socket, len, timeout)
+       when is_tuple(socket),
+       do: :ssl.recv(socket, len, timeout)
+
+  defp socket_recv(socket, len, timeout)
+       when is_port(socket),
+       do: :gen_tcp.recv(socket, len, timeout)
+
+  defp socket_set_active_once(socket) when is_tuple(socket),
+    do: :ssl.setopts(socket, active: :once)
+
+  defp socket_set_active_once(socket) when is_port(socket),
+    do: :inet.setopts(socket, active: :once)
+
+  defp socket_msg(socket, data) when is_tuple(socket), do: {:ssl, socket, data}
+  defp socket_msg(socket, data) when is_port(socket), do: {:tcp, socket, data}
+
   # ── Connection Lifecycle ─────────────────────────────────
 
   defp handle_disconnect(state, reason) do
@@ -585,11 +728,13 @@ defmodule Longbridge.WSConnection do
   end
 
   defp do_disconnect(state, reason) do
-    _ = cleanup_socket(state)
-    _ = fail_pending_requests(state, reason)
-
-    state =
+    cleaned =
       state
+      |> cleanup_socket()
+      |> then(fn s ->
+        _ = fail_pending_requests(s, reason)
+        s
+      end)
       |> cancel_idle_timer()
       |> Map.merge(%{
         connection_state: :disconnected,
@@ -597,23 +742,8 @@ defmodule Longbridge.WSConnection do
         buffer: <<>>
       })
 
-    broadcast(state, {:disconnected, reason})
-    _ = schedule_reconnect(state, reason)
-    state
-  end
-
-  defp handle_connection_failure(state, reason) do
-    state =
-      state
-      |> cancel_idle_timer()
-      |> cleanup_socket()
-      |> Map.put(:connection_state, :disconnected)
-      |> Map.put(:session_id, nil)
-      |> Map.put(:buffer, <<>>)
-
-    broadcast(state, {:disconnected, reason})
-    _ = schedule_reconnect(state, reason)
-    :ok
+    broadcast(cleaned, {:disconnected, reason})
+    schedule_reconnect(cleaned, reason)
   end
 
   defp cleanup_socket(state) do
@@ -622,12 +752,22 @@ defmodule Longbridge.WSConnection do
       :ok
     end
 
-    %{state | mint_conn: nil, websocket: nil, request_ref: nil, socket: nil}
+    %{state | mint_conn: nil, websocket: nil, request_ref: nil}
   end
 
   defdelegate fail_pending_requests(state, reason), to: Session
   defdelegate schedule_reconnect(state, reason), to: Session
   defdelegate schedule_idle_timer(state), to: Session
+
+  defp maybe_reconnect(state, reason) do
+    if Session.fatal_error?(reason) do
+      Logger.error("[Longbridge.#{state.type}] Fatal auth error, giving up: #{inspect(reason)}")
+      broadcast(state, :reconnect_exhausted)
+      state
+    else
+      schedule_reconnect(state, reason)
+    end
+  end
 
   defdelegate cancel_idle_timer(state), to: Session
 
@@ -637,11 +777,14 @@ defmodule Longbridge.WSConnection do
 
   defdelegate next_request_id(state), to: Session
 
-  defp parse_ws_url(url, default_path) when is_binary(url) do
+  defp ws_url_for(config, :quote), do: config.quote_ws_url
+  defp ws_url_for(config, :trade), do: config.trade_ws_url
+
+  defp parse_ws_url(url) when is_binary(url) do
     uri = URI.parse(url)
     scheme = ws_scheme(uri.scheme)
     port = uri.port || ws_default_port(scheme)
-    {scheme, uri.host || "localhost", port, uri.path || default_path}
+    {scheme, uri.host || "localhost", port}
   end
 
   defp ws_scheme("wss"), do: :wss

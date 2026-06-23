@@ -11,7 +11,7 @@ defmodule Longbridge.MixProject do
       deps: deps(),
       docs: docs(),
       aliases: aliases(),
-      test: test_config(),
+      test_coverage: [summary: [threshold: 89], ignore_modules: ignore_modules()],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/project.plt"},
         flags: [:missing_return, :extra_return, :unmatched_returns]
@@ -46,10 +46,42 @@ defmodule Longbridge.MixProject do
   # therefore set the threshold low enough that proto modules (counted
   # as 0%) drag total coverage down. The hand-written modules should
   # each be near 100% — see `mix test --cover` output.
-  defp test_config do
-    [
-      test: ["--cover", "--export-coverage", "coverage.lcov"]
-    ]
+  defp ignore_modules do
+    # Auto-generated protobuf modules are exercised by encode/decode
+    # round-trip tests in longbridge_test.exs, not by per-module coverage.
+    # HTTP-only contexts and OAuth are exercised by hand against a real
+    # Longbridge account (per AGENTS.md: no integration tests).
+    ["_build/#{Mix.env()}/lib/longbridge/ebin/*.beam", "_build/dev/lib/longbridge/ebin/*.beam"]
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.map(fn path ->
+      path |> Path.basename(".beam") |> String.to_atom()
+    end)
+    |> Enum.filter(fn mod ->
+      mod_str = Atom.to_string(mod)
+
+      String.contains?(mod_str, ".V1.") or
+        mod in [
+          Longbridge.Control.V1,
+          Longbridge.Quote.V1,
+          Longbridge.Trade.V1,
+          Longbridge.Protos,
+          Longbridge.AlertContext,
+          Longbridge.AssetContext,
+          Longbridge.CalendarContext,
+          Longbridge.ContentContext,
+          Longbridge.DCAContext,
+          Longbridge.FundamentalContext,
+          Longbridge.MarketContext,
+          Longbridge.PortfolioContext,
+          Longbridge.SharelistContext,
+          Longbridge.OAuth
+        ]
+    end)
+  end
+
+  def cli do
+    [preferred_envs: [ci: :test]]
   end
 
   defp aliases do
@@ -63,13 +95,15 @@ defmodule Longbridge.MixProject do
         "xref graph --label compile-connected --fail-above 0",
         "dialyzer",
         "ex_dna",
-        "reach.check --dead-code --smells"
+        "reach.check --dead-code --smells",
+        "test --cover"
       ]
     ]
   end
 
   defp deps do
     [
+      {:jason, "~> 1.4"},
       {:protox, "~> 2.0"},
       {:openapi_protobuf_specs,
        github: "longbridge/openapi-protobufs",

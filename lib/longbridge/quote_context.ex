@@ -28,7 +28,7 @@ defmodule Longbridge.QuoteContext do
 
   use GenServer
 
-  alias Longbridge.{Config, Connection}
+  alias Longbridge.{Config, WSConnection}
   alias Longbridge.Quote.V1, as: Q
 
   @type sub_type :: :QUOTE | :DEPTH | :BROKERS | :TRADE
@@ -292,27 +292,31 @@ defmodule Longbridge.QuoteContext do
 
   @impl true
   def init({config, opts}) do
-    conn_opts = [config: config, type: :quote, parent: self()]
-    {:ok, conn} = Connection.start_link(conn_opts)
+    if config.token == nil and config.app_key == nil do
+      {:stop, :missing_credentials}
+    else
+      conn_opts = [config: config, type: :quote, parent: self()]
+      {:ok, conn} = WSConnection.start_link(conn_opts)
 
-    if name = Keyword.get(opts, :name) do
-      Process.register(self(), name)
+      if name = Keyword.get(opts, :name) do
+        Process.register(self(), name)
+      end
+
+      schedule_heartbeat(config.heartbeat_interval)
+
+      {:ok, %{conn: conn, config: config}}
     end
-
-    schedule_heartbeat(config.heartbeat_interval)
-
-    {:ok, %{conn: conn, config: config}}
   end
 
   @impl true
   def handle_call(:session, _from, state) do
-    reply = Connection.get_session(state.conn)
+    reply = WSConnection.get_session(state.conn)
     {:reply, reply, state}
   end
 
   @impl true
   def handle_call({:request, cmd_code, body, _timeout}, _from, state) do
-    result = Connection.request(state.conn, cmd_code, body, state.config.request_timeout)
+    result = WSConnection.request(state.conn, cmd_code, body, state.config.request_timeout)
     {:reply, result, state}
   end
 
@@ -326,6 +330,13 @@ defmodule Longbridge.QuoteContext do
   @impl true
   def handle_info({:longbridge, conn, msg}, %{conn: conn} = state) do
     send(self(), {:longbridge_push, msg})
+    {:noreply, state}
+  end
+
+  # Forward push messages to the calling process. The caller should use
+  # `receive` to handle `{:longbridge_push, msg}`.
+  @impl true
+  def handle_info({:longbridge_push, _msg}, state) do
     {:noreply, state}
   end
 

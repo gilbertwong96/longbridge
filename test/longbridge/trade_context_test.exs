@@ -75,7 +75,7 @@ defmodule Longbridge.TradeContextTest do
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
 
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"order_id" => "12345"}} =
                TradeContext.submit_order(ctx,
@@ -101,7 +101,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} = TradeContext.cancel_order(ctx, "my-order-id")
     end
@@ -119,7 +119,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} =
                TradeContext.replace_order(ctx,
@@ -143,7 +143,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} = TradeContext.order_detail(ctx, "o123")
     end
@@ -167,7 +167,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"orders" => [%{"order_id" => "o1"}]}} =
                TradeContext.today_orders(ctx, symbol: "700.HK")
@@ -181,7 +181,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       assert {:ok, %{"orders" => []}} = TradeContext.today_orders(ctx)
     end
   end
@@ -198,7 +198,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} =
                TradeContext.history_orders(ctx,
@@ -224,7 +224,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"trades" => []}} = TradeContext.today_executions(ctx)
     end
@@ -244,7 +244,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"trades" => [%{"trade_id" => "t1"}]}} =
                TradeContext.history_executions(ctx)
@@ -267,7 +267,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"list" => [%{"currency" => "HKD"}]}} =
                TradeContext.account_balance(ctx)
@@ -283,7 +283,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       TradeContext.account_balance(ctx, "USD")
     end
   end
@@ -304,7 +304,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} = TradeContext.stock_positions(ctx)
     end
@@ -319,7 +319,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} = TradeContext.fund_positions(ctx)
     end
@@ -342,7 +342,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"im_factor" => "0.5"}} =
                TradeContext.margin_ratio(ctx, "TSLA.US")
@@ -360,7 +360,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, _} = TradeContext.cash_flow(ctx)
     end
@@ -383,7 +383,7 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:ok, %{"cash_max_qty" => "100"}} =
                TradeContext.estimate_max_purchase_quantity(ctx,
@@ -403,10 +403,261 @@ defmodule Longbridge.TradeContextTest do
 
       on_exit(fn -> stop_fake_http_server(server) end)
       config = test_config(server.port)
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
 
       assert {:error, {:api_error, 403_201, "signature invalid"}} =
                TradeContext.today_orders(ctx)
+    end
+  end
+
+  describe "history_orders/2 extra coverage" do
+    test "transforms atom keys and list values" do
+      server =
+        start_fake_http_server(fn req, sock ->
+          parsed = parse_request(req)
+          assert parsed.method == "GET"
+          assert String.contains?(parsed.path, "/v1/trade/order/history")
+          assert String.contains?(parsed.path, "symbol=AAPL.US,BABA.US")
+          reply_json(sock, %{code: 0, message: "ok", data: %{"orders" => []}})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, %{"orders" => []}} =
+               TradeContext.history_orders(ctx, symbol: ["AAPL.US", "BABA.US"])
+    end
+
+    test "handles binary keys in opts" do
+      server =
+        start_fake_http_server(fn req, sock ->
+          assert String.contains?(req, "/v1/trade/order/history")
+          reply_json(sock, %{code: 0, message: "ok", data: %{}})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, _} = TradeContext.history_orders(ctx, %{"limit" => 5})
+    end
+
+    test "returns error on API error" do
+      server =
+        start_fake_http_server(fn _req, sock ->
+          reply_json(sock, %{code: 5001, message: "bad request"})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:error, {:api_error, 5001, "bad request"}} =
+               TradeContext.history_orders(ctx)
+    end
+
+    test "returns error on transport error" do
+      config =
+        Config.new(token: "tok", app_key: "k", app_secret: "s", http_url: "http://127.0.0.1:1")
+
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:error, _} = TradeContext.history_orders(ctx)
+    end
+
+    test "returns ok for non-standard response" do
+      server =
+        start_fake_http_server(fn _req, sock ->
+          reply_json(sock, %{not_code: true})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, %{"not_code" => true}} = TradeContext.history_orders(ctx)
+    end
+  end
+
+  describe "push dispatch" do
+    test "default callback receives push events" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      test_pid = self()
+      TradeContext.set_default_push_callback(ctx, fn event -> send(test_pid, {:push, event}) end)
+
+      notif = %Longbridge.Trade.V1.Notification{
+        topic: "order_changed",
+        content_type: :CONTENT_JSON,
+        data: ~s({"order_id": "123"})
+      }
+
+      {:ok, iodata, _} = Protox.encode(notif)
+      body = IO.iodata_to_binary(iodata)
+      send(ctx, {:longbridge, nil, {:push, 18, body}})
+
+      assert_receive {:push, %{"order_id" => "123"}}, 1_000
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "topic callback takes priority over default" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      test_pid = self()
+
+      TradeContext.put_callback(ctx, "order_changed", fn event ->
+        send(test_pid, {:topic, event})
+      end)
+
+      TradeContext.set_default_push_callback(ctx, fn event ->
+        send(test_pid, {:default, event})
+      end)
+
+      notif = %Longbridge.Trade.V1.Notification{
+        topic: "order_changed",
+        content_type: :CONTENT_JSON,
+        data: ~s({"order_id": "456"})
+      }
+
+      {:ok, iodata, _} = Protox.encode(notif)
+      body = IO.iodata_to_binary(iodata)
+      send(ctx, {:longbridge, nil, {:push, 18, body}})
+
+      assert_receive {:topic, %{"order_id" => "456"}}, 1_000
+      refute_receive {:default, _}, 100
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "push with no callback does nothing" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      notif = %Longbridge.Trade.V1.Notification{
+        topic: "order_changed",
+        content_type: :CONTENT_JSON,
+        data: ~s({"order_id": "789"})
+      }
+
+      {:ok, iodata, _} = Protox.encode(notif)
+      body = IO.iodata_to_binary(iodata)
+      send(ctx, {:longbridge, nil, {:push, 18, body}})
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "push with unknown cmd and default callback" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      test_pid = self()
+      TradeContext.set_default_push_callback(ctx, fn event -> send(test_pid, {:push, event}) end)
+
+      send(ctx, {:longbridge, nil, {:push, 99, ~s({"data": 1})}})
+      assert_receive {:push, %{"data" => 1}}, 1_000
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "push with unknown cmd and no default callback" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      send(ctx, {:longbridge, nil, {:push, 99, ~s({"data": 1})}})
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "push with non-JSON data is ignored" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      test_pid = self()
+      TradeContext.set_default_push_callback(ctx, fn event -> send(test_pid, {:push, event}) end)
+
+      notif = %Longbridge.Trade.V1.Notification{
+        topic: "order_changed",
+        content_type: :CONTENT_JSON,
+        data: "not-json"
+      }
+
+      {:ok, iodata, _} = Protox.encode(notif)
+      body = IO.iodata_to_binary(iodata)
+      send(ctx, {:longbridge, nil, {:push, 18, body}})
+      Process.sleep(100)
+      refute_receive {:push, _}, 100
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "push with empty topic is ignored" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      notif = %Longbridge.Trade.V1.Notification{
+        topic: "",
+        content_type: :CONTENT_JSON,
+        data: ~s({"order_id": "123"})
+      }
+
+      {:ok, iodata, _} = Protox.encode(notif)
+      body = IO.iodata_to_binary(iodata)
+      send(ctx, {:longbridge, nil, {:push, 18, body}})
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "non-push message is ignored" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      send(ctx, {:longbridge, nil, {:response, 1, <<>>}})
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+  end
+
+  describe "GenServer callbacks" do
+    test "heartbeat sends to conn" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      send(ctx, :heartbeat)
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "unknown messages are ignored" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      send(ctx, {:unknown, "msg"})
+      Process.sleep(100)
+      assert Process.alive?(ctx)
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "register with name" do
+      name = :test_trade_named_ctx
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true, name: name)
+
+      assert Process.whereis(name) == ctx
+      GenServer.stop(ctx, :normal, 1_000)
+    end
+
+    test "remove_callback works" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      TradeContext.put_callback(ctx, :private, fn _ -> :ok end)
+      TradeContext.remove_callback(ctx, :private)
+      GenServer.stop(ctx, :normal, 1_000)
     end
   end
 

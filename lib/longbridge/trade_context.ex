@@ -352,11 +352,11 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def init({config, opts}) do
-    if Keyword.get(opts, :skip_tcp, false) do
+    if Keyword.get(opts, :skip_connection, false) do
       {:ok, %{conn: nil, config: config, push_callbacks: %{}, default_push_callback: nil}}
     else
       conn_opts = [config: config, type: :trade, parent: self()]
-      {:ok, conn} = Longbridge.Connection.start_link(conn_opts)
+      {:ok, conn} = Longbridge.WSConnection.start_link(conn_opts)
 
       if name = Keyword.get(opts, :name) do
         Process.register(self(), name)
@@ -372,7 +372,7 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def handle_call({:request, cmd_code, body, timeout}, _from, state) do
-    case Longbridge.Connection.request(state.conn, cmd_code, body, timeout) do
+    case Longbridge.WSConnection.request(state.conn, cmd_code, body, timeout) do
       {:ok, body, req_id} -> {:reply, {:ok, body, req_id}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -415,7 +415,7 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def handle_info(:heartbeat, state) do
-    send(state.conn, :heartbeat)
+    if state.conn, do: send(state.conn, :heartbeat)
     schedule_heartbeat(state.config.heartbeat_interval)
     {:noreply, state}
   end

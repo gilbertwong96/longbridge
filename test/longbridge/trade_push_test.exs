@@ -30,12 +30,10 @@ defmodule Longbridge.TradePushTest do
       config =
         Config.new(
           token: "test-token",
-          trade_host: "127.0.0.1",
-          trade_port: 65_000,
           http_url: "http://127.0.0.1:1"
         )
 
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       Process.sleep(50)
 
       parent = self()
@@ -69,12 +67,10 @@ defmodule Longbridge.TradePushTest do
       config =
         Config.new(
           token: "test-token",
-          trade_host: "127.0.0.1",
-          trade_port: 65_000,
           http_url: "http://127.0.0.1:1"
         )
 
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       Process.sleep(50)
 
       parent = self()
@@ -104,12 +100,10 @@ defmodule Longbridge.TradePushTest do
       config =
         Config.new(
           token: "test-token",
-          trade_host: "127.0.0.1",
-          trade_port: 65_000,
           http_url: "http://127.0.0.1:1"
         )
 
-      {:ok, ctx} = TradeContext.start_link(config, skip_tcp: true)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       Process.sleep(50)
 
       parent = self()
