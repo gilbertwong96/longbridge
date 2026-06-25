@@ -190,4 +190,64 @@ defmodule Longbridge.ProtocolTest do
       assert Protocol.unpack(<<0b00000011>>) == {:error, :incomplete_header}
     end
   end
+
+  describe "unpack/1 gzip decompression" do
+    test "decompresses body when header.gzip is true" do
+      payload = "this is a long enough body to be worth compressing"
+      gzipped = :zlib.gzip(payload)
+
+      header = %Header{
+        type: :response,
+        verify: false,
+        gzip: true,
+        body_length: byte_size(gzipped),
+        cmd_code: 11,
+        request_id: 7,
+        status_code: 0
+      }
+
+      data = IO.iodata_to_binary(Protocol.pack(header, gzipped))
+      assert {:ok, %Header{gzip: true}, ^payload, <<>>} = Protocol.unpack(data)
+    end
+
+    test "leaves body untouched when header.gzip is false" do
+      payload = "plain protobuf body, no compression"
+
+      header = %Header{
+        type: :response,
+        verify: false,
+        gzip: false,
+        body_length: byte_size(payload),
+        cmd_code: 11,
+        request_id: 8,
+        status_code: 0
+      }
+
+      data = IO.iodata_to_binary(Protocol.pack(header, payload))
+      assert {:ok, %Header{gzip: false}, ^payload, <<>>} = Protocol.unpack(data)
+    end
+
+    test "raises if gzip flag is set but body is not a valid gzip stream" do
+      # Build a header claiming gzip=true but pass raw protobuf bytes.
+      # The first byte 0x0a is not a valid gzip magic byte (gzip = 0x1f 0x8b),
+      # so :zlib.gunzip will fail.
+      payload = <<10, 7, "AAPL.US">>
+
+      header = %Header{
+        type: :response,
+        verify: false,
+        gzip: true,
+        body_length: byte_size(payload),
+        cmd_code: 18,
+        request_id: 9,
+        status_code: 0
+      }
+
+      data = IO.iodata_to_binary(Protocol.pack(header, payload))
+
+      assert_raise RuntimeError, ~r/gzip decompression failed/, fn ->
+        Protocol.unpack(data)
+      end
+    end
+  end
 end

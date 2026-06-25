@@ -79,7 +79,7 @@ defmodule Longbridge.Config do
   - `:gzip_threshold` — Min body size for gzip compression (bytes)
   - `:heartbeat_interval` — Heartbeat interval in ms (default: 15000)
   - `:request_timeout` — Request timeout in ms (default: 10000)
-  - `:idle_timeout` — Close connection after this many ms of inactivity (default: 60000)
+  - `:idle_timeout` — Close connection after this many ms of inactivity (default: 600000)
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -98,7 +98,7 @@ defmodule Longbridge.Config do
       gzip_threshold: opts[:gzip_threshold] || 1024,
       heartbeat_interval: opts[:heartbeat_interval] || 15_000,
       request_timeout: opts[:request_timeout] || 10_000,
-      idle_timeout: opts[:idle_timeout] || 60_000
+      idle_timeout: opts[:idle_timeout] || 600_000
     }
   end
 

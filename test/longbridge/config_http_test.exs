@@ -19,7 +19,7 @@ defmodule Longbridge.ConfigHTTPTest do
 
       assert config.heartbeat_interval == 15_000
       assert config.request_timeout == 10_000
-      assert config.idle_timeout == 60_000
+      assert config.idle_timeout == 600_000
       assert config.gzip_threshold == 1024
     end
 

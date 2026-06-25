@@ -2,7 +2,9 @@ defmodule Longbridge.PortfolioContext do
   @moduledoc """
   Portfolio context.
 
-  Provides exchange rates and portfolio P&L analysis.
+  Provides exchange rates and portfolio P&L analysis. Current positions
+  are served by `Longbridge.TradeContext.stock_positions/1` and
+  `fund_positions/1`.
 
   All functions accept a `Longbridge.Config` struct and return
   `{:ok, data} | {:error, reason}` tuples.
@@ -11,23 +13,27 @@ defmodule Longbridge.PortfolioContext do
 
       config = Longbridge.Config.new(...)
 
-      {:ok, rates} = Longbridge.PortfolioContext.exchange_rates(config, "USD", ["HKD", "CNH"])
+      {:ok, rates} = Longbridge.PortfolioContext.exchange_rates(config)
   """
 
   alias Longbridge.{Config, HTTPClient}
 
   @doc """
-  Returns real-time exchange rates.
+  Returns current exchange rates (all currencies the server knows).
 
-  `from_currency` is the base currency (e.g., `"USD"`).
-  `to_currencies` is a list of target currencies (e.g., `["HKD", "CNH"]`).
+  `base_currency` is optional. The upstream returns rates for every
+  supported counter-currency when omitted.
   """
-  @spec exchange_rates(Config.t(), String.t(), [String.t()]) ::
-          {:ok, map()} | {:error, term()}
-  def exchange_rates(%Config{} = config, from_currency, to_currencies) do
-    currencies = Enum.join(to_currencies, ",")
-    params = "from=#{from_currency}&to=#{currencies}"
-    HTTPClient.request_json(:get, "/v1/portfolio/exchange_rates", "", config, params: params)
+  @spec exchange_rates(Config.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def exchange_rates(%Config{} = config, base_currency \\ nil) do
+    params =
+      if base_currency do
+        "base_currency=#{base_currency}"
+      else
+        ""
+      end
+
+    HTTPClient.request_json(:get, "/v1/asset/exchange_rates", "", config, params: params)
   end
 
   @doc """
@@ -35,21 +41,28 @@ defmodule Longbridge.PortfolioContext do
 
   ## Options
 
-  - `:currency` — filter by currency
-  - `:type` — `:daily` or `:monthly`
-  - `:start_date` — start of period (YYYY-MM-DD)
-  - `:end_date` — end of period (YYYY-MM-DD)
+  - `:market` — `:HK`, `:US`, `:CN`, `:SG`
   """
   @spec portfolio_pl(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def portfolio_pl(%Config{} = config, opts \\ []) do
-    HTTPClient.request_json(:get, "/v1/portfolio/pl", "", config,
+    HTTPClient.request_json(:get, "/v1/portfolio/profit-analysis/by-market", "", config,
       params: HTTPClient.build_query(opts)
     )
   end
 
-  @doc "Returns portfolio position list with P&L breakdowns."
-  @spec portfolio_positions(Config.t()) :: {:ok, map()} | {:error, term()}
-  def portfolio_positions(%Config{} = config) do
-    HTTPClient.request_json(:get, "/v1/portfolio/positions", "", config)
+  @doc """
+  Returns detailed profit & loss breakdown for a date range.
+
+  ## Options
+
+  - `:start_date` — `"YYYY-MM-DD"` (required)
+  - `:end_date` — `"YYYY-MM-DD"` (required)
+  - `:symbol` — filter by symbol
+  """
+  @spec portfolio_positions(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def portfolio_positions(%Config{} = config, opts \\ []) do
+    HTTPClient.request_json(:get, "/v1/portfolio/profit-analysis/detail", "", config,
+      params: HTTPClient.build_query(opts)
+    )
   end
 end

@@ -236,6 +236,33 @@ defmodule Longbridge.HTTPClientTest do
     end
   end
 
+  describe "do_request non-JSON body passthrough" do
+    test "returns the raw body when the response is not valid JSON" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+
+      server =
+        start_fake_http_server(fn _request ->
+          http_json(200, "not-json-at-all")
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      http_url = "http://127.0.0.1:#{server.port}"
+
+      assert {:ok, "not-json-at-all"} =
+               HTTPClient.request(:get, "/v1/test", "", %{config | http_url: http_url})
+    end
+  end
+
+  describe "refresh_access_token error path" do
+    test "propagates HTTP transport errors" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      # http_url points at a closed port — Finch will fail with a
+      # transport error, exercising the {:error, reason} branch.
+      assert {:error, _} =
+               HTTPClient.refresh_access_token(%{config | http_url: "http://127.0.0.1:1"})
+    end
+  end
+
   # ── Fake HTTP server (raw TCP) ──────────────────────────
 
   defp start_fake_http_server(handler) do

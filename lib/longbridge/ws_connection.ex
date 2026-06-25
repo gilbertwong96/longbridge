@@ -159,11 +159,12 @@ defmodule Longbridge.WSConnection do
   def handle_call({:request, cmd_code, body, timeout}, from, state) do
     if state.connection_state == :active do
       req_id = next_request_id(state)
+      {packed_body, gzipped} = maybe_gzip(body, state.config.gzip_threshold)
 
       header = %Header{
         type: :request,
         verify: false,
-        gzip: false,
+        gzip: gzipped,
         body_length: 0,
         cmd_code: cmd_code,
         request_id: req_id,
@@ -171,7 +172,7 @@ defmodule Longbridge.WSConnection do
       }
 
       ref = Process.send_after(self(), {:request_timeout, req_id}, timeout)
-      raw_packet = IO.iodata_to_binary(Protocol.pack(header, body))
+      raw_packet = IO.iodata_to_binary(Protocol.pack(header, packed_body))
 
       case send_frame(state, raw_packet) do
         {:ok, state} ->
@@ -391,6 +392,21 @@ defmodule Longbridge.WSConnection do
       {:error, {:upgrade, {:bad_status, status}}}
     end
   end
+
+  # Compresses the request body when it meets `gzip_threshold`, mirroring
+  # the server's behaviour so large requests (e.g. option-chain lists)
+  # don't burn bandwidth.
+  @spec maybe_gzip(binary(), non_neg_integer() | nil) :: {binary(), boolean()}
+  defp maybe_gzip(body, threshold)
+       when is_binary(body) and is_integer(threshold) and threshold > 0 do
+    if byte_size(body) >= threshold do
+      {:zlib.gzip(body), true}
+    else
+      {body, false}
+    end
+  end
+
+  defp maybe_gzip(body, _threshold), do: {body, false}
 
   defp send_frame(state, payload) when is_binary(payload) do
     case WebSocket.encode(state.websocket, {:binary, payload}) do
@@ -626,19 +642,21 @@ defmodule Longbridge.WSConnection do
   defp build_auth_request(state, token) do
     auth_body = %Ctrl.AuthRequest{token: token, metadata: %{}}
     {:ok, iodata, _size} = Protox.encode(auth_body)
+    encoded = IO.iodata_to_binary(iodata)
+    {packed_body, gzipped} = maybe_gzip(encoded, state.config.gzip_threshold)
     req_id = next_request_id(state)
 
     header = %Header{
       type: :request,
       verify: false,
-      gzip: false,
+      gzip: gzipped,
       body_length: 0,
       cmd_code: Protocol.cmd_auth(),
       request_id: req_id,
       timeout: @auth_timeout
     }
 
-    {Protocol.pack(header, IO.iodata_to_binary(iodata)), req_id}
+    {Protocol.pack(header, packed_body), req_id}
   end
 
   defp send_heartbeat(state) do

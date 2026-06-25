@@ -2,7 +2,9 @@ defmodule Longbridge.ContentContext do
   @moduledoc """
   Content context.
 
-  Provides access to news, community topics, and announcements.
+  Provides access to community topics and per-symbol news. Both endpoints
+  take a stock symbol; for browsing all-symbol news or announcements use
+  the upstream Longbridge web app.
 
   All functions accept a `Longbridge.Config` struct and return
   `{:ok, data} | {:error, reason}` tuples.
@@ -11,55 +13,50 @@ defmodule Longbridge.ContentContext do
 
       config = Longbridge.Config.new(...)
 
-      {:ok, news} = Longbridge.ContentContext.news(config, market: "US")
+      {:ok, news} = Longbridge.ContentContext.news(config, "AAPL.US")
   """
 
   alias Longbridge.{Config, HTTPClient}
 
   @doc """
-  Lists news articles. Supports pagination.
+  Lists news articles for a symbol.
+
+  `symbol` is required (e.g. `"AAPL.US"`, `"700.HK"`).
 
   ## Options
 
-  - `:market` — market filter (`"US"`, `"HK"`, `"CN"`, `"SG"`)
-  - `:symbol` — filter by symbol
-  - `:page` — page cursor
-  - `:page_size` — results per page
   - `:lang` — language (`"zh-CN"`, `"zh-HK"`, `"en"`)
   """
-  @spec news(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def news(%Config{} = config, opts \\ []) do
+  @spec news(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def news(%Config{} = config, symbol, opts \\ []) when is_binary(symbol) do
     params = HTTPClient.build_query(opts)
-    HTTPClient.request_json(:get, "/v1/content/news", "", config, params: params)
+    HTTPClient.request_json(:get, "/v1/content/#{symbol}/news", "", config, params: params)
   end
 
   @doc """
-  Lists community topics/posts. Supports pagination.
+  Lists community topics for a symbol.
+
+  `symbol` is required.
 
   ## Options
 
-  - `:symbol` — filter by symbol
   - `:page` — page cursor
   - `:page_size` — results per page
   """
-  @spec topics(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def topics(%Config{} = config, opts \\ []) do
+  @spec topics(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def topics(%Config{} = config, symbol, opts \\ []) when is_binary(symbol) do
     params = HTTPClient.build_query(opts)
-    HTTPClient.request_json(:get, "/v1/content/topics", "", config, params: params)
+    HTTPClient.request_json(:get, "/v1/content/#{symbol}/topics", "", config, params: params)
   end
 
   @doc """
-  Lists company announcements.
+  Lists company announcements for a symbol.
 
-  ## Options
+  The upstream OpenAPI does not currently expose announcements as a REST
+  endpoint; the topic listing (`topics/2`) is the closest equivalent.
 
-  - `:symbol` — filter by symbol
-  - `:page` — page cursor
-  - `:page_size` — results per page
+  Returns `{:error, :not_implemented}` to make the absence explicit.
   """
-  @spec announcements(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def announcements(%Config{} = config, opts \\ []) do
-    params = HTTPClient.build_query(opts)
-    HTTPClient.request_json(:get, "/v1/content/announcements", "", config, params: params)
-  end
+  @spec announcements(Config.t(), String.t()) :: {:error, :not_implemented}
+  def announcements(%Config{}, _symbol), do: {:error, :not_implemented}
 end

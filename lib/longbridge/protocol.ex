@@ -84,6 +84,7 @@ defmodule Longbridge.Protocol do
           {:error, :incomplete_body}
         else
           <<body::binary-size(^body_len), remaining::binary>> = rest
+          body = decompress_body(header, body)
           {:ok, header, body, remaining}
         end
 
@@ -91,6 +92,18 @@ defmodule Longbridge.Protocol do
         err
     end
   end
+
+  # The Longbridge server gzip-compresses response bodies when the payload
+  # exceeds its internal threshold, regardless of the `gzip` flag we send on
+  # the request. The header's `gzip` bit is the source of truth: when set, the
+  # body is a gzip stream and must be inflated before protobuf decoding.
+  defp decompress_body(%Header{gzip: true}, body) do
+    :zlib.gunzip(body)
+  rescue
+    e -> reraise "longbridge gzip decompression failed: #{Exception.message(e)}", __STACKTRACE__
+  end
+
+  defp decompress_body(%Header{gzip: false}, body), do: body
 
   # ── Command helpers ──────────────────────────────────────
 

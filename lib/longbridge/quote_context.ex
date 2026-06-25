@@ -205,11 +205,22 @@ defmodule Longbridge.QuoteContext do
     request_empty(pid, @cmd_market_trade_period, Q.MarketTradePeriodResponse)
   end
 
-  @doc "Queries market trade days."
+  @doc """
+  Queries market trade days.
+
+  The interval must be **less than one month** and **within the most
+  recent year** (an upstream constraint). `beg_day` / `end_day` accept
+  either `"YYYY-MM-DD"` or `"YYYYMMDD"`; the server receives the latter.
+  """
   @spec market_trade_day(pid(), String.t(), String.t(), String.t()) ::
           {:ok, struct()} | {:error, term()}
   def market_trade_day(pid, market, beg_day, end_day) do
-    req = %Q.MarketTradeDayRequest{market: market, beg_day: beg_day, end_day: end_day}
+    req = %Q.MarketTradeDayRequest{
+      market: market,
+      beg_day: normalize_date(beg_day),
+      end_day: normalize_date(end_day)
+    }
+
     request(pid, @cmd_market_trade_day, req, Q.MarketTradeDayResponse)
   end
 
@@ -291,17 +302,12 @@ defmodule Longbridge.QuoteContext do
   # ── GenServer Callbacks ──────────────────────────────────
 
   @impl true
-  def init({config, opts}) do
+  def init({config, _opts}) do
     if config.token == nil and config.app_key == nil do
       {:stop, :missing_credentials}
     else
       conn_opts = [config: config, type: :quote, parent: self()]
       {:ok, conn} = WSConnection.start_link(conn_opts)
-
-      if name = Keyword.get(opts, :name) do
-        Process.register(self(), name)
-      end
-
       schedule_heartbeat(config.heartbeat_interval)
 
       {:ok, %{conn: conn, config: config}}
@@ -386,4 +392,10 @@ defmodule Longbridge.QuoteContext do
   defp period_code(:QUARTER), do: 3500
   defp period_code(:YEAR), do: 4000
   defp period_code(other) when is_integer(other), do: other
+
+  defp normalize_date(<<y::4-bytes, ?-, m::2-bytes, ?-, d::2-bytes>>) when is_binary(y) do
+    y <> m <> d
+  end
+
+  defp normalize_date(<<_::8-bytes>> = d), do: d
 end

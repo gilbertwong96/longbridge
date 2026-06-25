@@ -174,5 +174,68 @@ defmodule Longbridge.Connection.SessionTest do
       assert {:error, {:auth_failed_and_refresh_failed, :http_500}} =
                Session.do_auth_with_retry(state, do_auth)
     end
+
+    test "wraps refresh-token-fn exceptions as {:refresh_exception, _}" do
+      state =
+        Map.put(
+          base_state(config: Config.new(token: "x", app_key: "k", app_secret: "s")),
+          :refresh_token_fn,
+          fn _cfg -> raise ArgumentError, "boom" end
+        )
+
+      do_auth = fn _st -> {:error, {:auth_failed, 5}} end
+
+      assert {:error, {:auth_failed_and_refresh_failed, {:refresh_exception, %ArgumentError{}}}} =
+               Session.do_auth_with_retry(state, do_auth)
+    end
+
+    test "rescues RuntimeError from the refresh fn" do
+      state =
+        Map.put(
+          base_state(config: Config.new(token: "x", app_key: "k", app_secret: "s")),
+          :refresh_token_fn,
+          fn _cfg -> raise "raw runtime" end
+        )
+
+      do_auth = fn _st -> {:error, {:auth_failed, 5}} end
+
+      assert {:error, {:auth_failed_and_refresh_failed, {:refresh_exception, _}}} =
+               Session.do_auth_with_retry(state, do_auth)
+    end
+  end
+
+  describe "fatal_error?/1" do
+    test "matches documented fatal shapes" do
+      assert Session.fatal_error?({:auth_failed, 5})
+      assert Session.fatal_error?({:auth_failed_and_refresh_failed, :http_500})
+      assert Session.fatal_error?({:unpack, :bad_magic})
+      assert Session.fatal_error?(:no_token)
+      refute Session.fatal_error?(:closed)
+      refute Session.fatal_error?({:connect, :econnrefused})
+      refute Session.fatal_error?(nil)
+    end
+  end
+
+  describe "dispatch_response/3 unexpected req_id" do
+    test "logs a warning and returns the state unchanged when the request id has no pending caller" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          state = base_state(pending: %{}, subscribers: MapSet.new([self()]))
+
+          header = %Longbridge.Protocol.Header{
+            type: :response,
+            verify: false,
+            gzip: false,
+            body_length: 0,
+            cmd_code: 11,
+            request_id: 9_999,
+            status_code: 0
+          }
+
+          assert state == Session.dispatch_response(state, header, "body")
+        end)
+
+      assert log =~ "Unexpected response for req_id"
+    end
   end
 end

@@ -457,6 +457,37 @@ defmodule Longbridge.QuoteContextTest do
       assert_receive {:cmd_code, 7}
       cleanup(server, ctx)
     end
+
+    test "unsubscribe defaults unsub_all to false" do
+      handler = fn client, test_pid, cmd_code, req_id, body ->
+        send(test_pid, {:cmd_code, cmd_code})
+        send(test_pid, {:body, body})
+        :gen_tcp.send(client, ws_encode_binary(build_response(cmd_code, req_id, <<>>)))
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-ud#{System.unique_integer([:positive])}", handler)
+
+      assert :ok = QuoteContext.unsubscribe(ctx, ["AAPL.US"], [:QUOTE])
+      assert_receive {:cmd_code, 7}
+      assert_receive {:body, body}
+      {:ok, decoded} = Protox.decode(body, Q.UnsubscribeRequest)
+      refute decoded.unsub_all
+      cleanup(server, ctx)
+    end
+
+    test "unsubscribe returns error when server drops the connection" do
+      handler = fn client, _tp, _cc, _ri, _body ->
+        :gen_tcp.close(client)
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-ue#{System.unique_integer([:positive])}", handler)
+
+      Process.sleep(50)
+      assert {:error, _} = QuoteContext.unsubscribe(ctx, ["AAPL.US"], [:QUOTE])
+      cleanup(server, ctx)
+    end
   end
 
   describe "subscription/1" do
@@ -604,6 +635,56 @@ defmodule Longbridge.QuoteContextTest do
       assert req.period == 9999
       cleanup(server, ctx)
     end
+
+    test "passes adjust_type and trade_session through" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pa#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, _} = QuoteContext.candlesticks(ctx, "AAPL.US", :DAY, 50, 1, 2)
+      assert_receive {:req, req}
+      # The integer `1` decodes to the FORWARD_ADJUST enum value on the
+      # server side (NO_ADJUST = 0, FORWARD_ADJUST = 1).
+      assert req.adjust_type == :FORWARD_ADJUST
+      assert req.trade_session == 2
+      cleanup(server, ctx)
+    end
+
+    test "4-arg call falls back to default trade_session" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-p4#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, _} = QuoteContext.candlesticks(ctx, "AAPL.US", :DAY, 10, 1)
+      assert_receive {:req, req}
+      assert req.adjust_type == :FORWARD_ADJUST
+      assert req.trade_session == 0
+      cleanup(server, ctx)
+    end
+
+    test "3-arg call falls back to default count and adjust_type" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-p3#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, _} = QuoteContext.candlesticks(ctx, "AAPL.US", :DAY, 50)
+      assert_receive {:req, req}
+      assert req.count == 50
+      assert req.adjust_type == :NO_ADJUST
+      cleanup(server, ctx)
+    end
   end
 
   describe "other API methods" do
@@ -716,6 +797,24 @@ defmodule Longbridge.QuoteContextTest do
       assert req.market == "HK"
       assert req.beg_day == "20240101"
       assert req.end_day == "20240131"
+      cleanup(server, ctx)
+    end
+
+    test "market_trade_day/4 accepts YYYY-MM-DD and strips dashes" do
+      resp = %Q.MarketTradeDayResponse{trade_day: [], half_trade_day: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-mtd2#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.MarketTradeDayRequest)
+        )
+
+      assert {:ok, %Q.MarketTradeDayResponse{}} =
+               QuoteContext.market_trade_day(ctx, "US", "2024-01-15", "2024-01-29")
+
+      assert_receive {:req, req}
+      assert req.beg_day == "20240115"
+      assert req.end_day == "20240129"
       cleanup(server, ctx)
     end
 

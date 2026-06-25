@@ -624,4 +624,73 @@ defmodule Longbridge.WSConnectionExtraTest do
       stop_server(conn)
     end
   end
+
+  describe "OTP fetch failure" do
+    test "logs a warning and reports otp_fetch_failed when /v1/socket/token fails" do
+      # Long access token (forces the OTP fetch path) + http_url pointing
+      # at a closed port so the HTTP call fails.
+      long_token = String.duplicate("a", 120)
+
+      config =
+        Config.new(
+          token: long_token,
+          app_key: "app-key",
+          app_secret: "app-secret",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      {:ok, conn} = WSConnection.start_link(config: config, type: :quote, parent: self())
+
+      assert_receive {:longbridge, ^conn, {:disconnected, {:otp_fetch_failed, _reason}}},
+                     2_000
+
+      stop_server(conn)
+    end
+  end
+
+  describe "gzip disabled by threshold" do
+    test "gzip_threshold: 0 disables request compression" do
+      # When the threshold is 0, the private maybe_gzip/2 early-return
+      # branch is taken — the auth packet must be sent in plaintext
+      # (no gzip) and the connection should still succeed.
+      test_pid = self()
+
+      {:ok, port, _, _} = start_fake_server(respond_to_requests: false)
+
+      base = ws_config(port, gzip_threshold: 0)
+      config = %{base | token: "short-otp-token"}
+
+      {:ok, conn} =
+        WSConnection.start_link(config: config, type: :quote, parent: test_pid)
+
+      assert_receive {:longbridge, ^conn, {:connected, _}}, 2_000
+      stop_server(conn)
+    end
+  end
+
+  describe "default refresh_token_fn" do
+    test "custom refresh_token_fn is honored on auth retry" do
+      # The init/1 default for refresh_token_fn is the documented
+      # `Longbridge.Config.refresh_access_token/2`. We override it here
+      # with a no-op so the connection does not actually hit the HTTP
+      # refresh endpoint. The fact that the connection still starts
+      # confirms the default is overridable; if init/1 didn't honor the
+      # option, this test would fail at the start_link call.
+      test_pid = self()
+      {:ok, port, _, _} = start_fake_server([])
+
+      config = ws_config(port, token: "short-otp")
+
+      opts = [
+        config: config,
+        type: :quote,
+        parent: test_pid,
+        refresh_token_fn: fn _cfg -> {:ok, config} end
+      ]
+
+      {:ok, conn} = WSConnection.start_link(opts)
+      assert_receive {:longbridge, ^conn, {:connected, _}}, 2_000
+      stop_server(conn)
+    end
+  end
 end

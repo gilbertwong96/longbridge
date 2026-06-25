@@ -20,64 +20,69 @@ defmodule Longbridge.SharelistContext do
 
   alias Longbridge.{Config, HTTPClient}
 
+  @base "/v1/sharelists"
+
   @doc """
   Creates a new sharelist.
 
   ## Options
 
   - `:name` — sharelist name (required)
-  - `:symbols` — initial list of symbols (default: `[]`)
   - `:description` — optional description
+  - `:symbols` — initial list of symbols (default: `[]`)
   """
   @spec create(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def create(%Config{} = config, opts) do
     body = Jason.encode!(Map.new(opts))
-    HTTPClient.request_json(:post, "/v1/sharelist/create", body, config)
+    HTTPClient.request_json(:post, @base, body, config)
   end
 
-  @doc "Lists all sharelists owned by the current user."
+  @doc "Lists sharelists owned by the current user."
   @spec list(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def list(%Config{} = config, opts \\ []) do
-    HTTPClient.request_json(:get, "/v1/sharelist/list", "", config,
+    HTTPClient.request_json(:get, @base, "", config, params: HTTPClient.build_query(opts))
+  end
+
+  @doc "Lists the most-followed public sharelists."
+  @spec popular(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def popular(%Config{} = config, opts \\ []) do
+    HTTPClient.request_json(:get, @base <> "/popular", "", config,
       params: HTTPClient.build_query(opts)
     )
   end
 
-  @doc "Gets the symbols in a specific sharelist by `sharelist_id`."
+  @doc "Gets the details (including symbols) of a sharelist by id."
   @spec detail(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def detail(%Config{} = config, sharelist_id) do
-    HTTPClient.request_json(:get, "/v1/sharelist/detail", "", config,
-      params: "sharelist_id=#{sharelist_id}"
-    )
+    HTTPClient.request_json(:get, "#{@base}/#{sharelist_id}", "", config)
   end
 
   @doc "Renames a sharelist."
   @spec rename(Config.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def rename(%Config{} = config, sharelist_id, name) do
-    body = Jason.encode!(%{sharelist_id: sharelist_id, name: name})
-    HTTPClient.request_json(:post, "/v1/sharelist/rename", body, config)
+    body = Jason.encode!(%{name: name})
+    HTTPClient.request_json(:post, "#{@base}/#{sharelist_id}", body, config)
   end
 
   @doc "Adds one or more symbols to a sharelist."
   @spec add_symbols(Config.t(), String.t(), [String.t()]) ::
           {:ok, map()} | {:error, term()}
   def add_symbols(%Config{} = config, sharelist_id, symbols) do
-    body = Jason.encode!(%{sharelist_id: sharelist_id, symbols: symbols})
-    HTTPClient.request_json(:post, "/v1/sharelist/add_symbols", body, config)
+    body = Jason.encode!(%{symbols: symbols})
+    HTTPClient.request_json(:post, "#{@base}/#{sharelist_id}/items", body, config)
   end
 
   @doc "Removes one or more symbols from a sharelist."
   @spec remove_symbols(Config.t(), String.t(), [String.t()]) ::
           {:ok, map()} | {:error, term()}
   def remove_symbols(%Config{} = config, sharelist_id, symbols) do
-    body = Jason.encode!(%{sharelist_id: sharelist_id, symbols: symbols})
-    HTTPClient.request_json(:post, "/v1/sharelist/remove_symbols", body, config)
+    body = Jason.encode!(%{symbols: symbols})
+    HTTPClient.request_json(:delete, "#{@base}/#{sharelist_id}/items", body, config)
   end
 
-  @doc "Deletes a sharelist by `sharelist_id`."
+  @doc "Deletes a sharelist by id."
   @spec delete(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def delete(%Config{} = config, sharelist_id) do
-    body = Jason.encode!(%{sharelist_id: sharelist_id})
-    HTTPClient.request_json(:post, "/v1/sharelist/delete", body, config)
+    HTTPClient.request_json(:delete, "#{@base}/#{sharelist_id}", "", config)
   end
 end

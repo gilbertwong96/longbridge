@@ -42,7 +42,7 @@ defmodule Longbridge.TradeContext do
   """
 
   use GenServer
-  alias Longbridge.{Config, HTTPClient}
+  alias Longbridge.{Config, HTTPClient, WSConnection}
 
   @order_changed_topic "/v1/trade/order_changed"
 
@@ -72,6 +72,12 @@ defmodule Longbridge.TradeContext do
   @spec start_link(Config.t(), keyword()) :: GenServer.on_start()
   def start_link(config, opts \\ []) do
     GenServer.start_link(__MODULE__, {config, opts}, opts)
+  end
+
+  @doc "Returns the current session info from the underlying WS connection."
+  @spec session(pid()) :: {:ok, String.t() | nil, integer() | nil} | {:error, term()}
+  def session(pid) do
+    GenServer.call(pid, :session)
   end
 
   # ── Order submission ────────────────────────────────────
@@ -352,23 +358,51 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def init({config, opts}) do
+    # Derive the WS-only OTP config from the caller's access-token config.
+    # The OTP authenticates only the WebSocket handshake. HTTP endpoints
+    # require the original access token, so we keep both side by side and
+    # never let the WS rotation poison HTTP signing.
+    {:ok, ws_config} = Config.with_socket_token(config)
+    http_config = config
+
     if Keyword.get(opts, :skip_connection, false) do
-      {:ok, %{conn: nil, config: config, push_callbacks: %{}, default_push_callback: nil}}
+      {:ok,
+       %{
+         conn: nil,
+         ws_config: ws_config,
+         http_config: http_config,
+         push_callbacks: %{},
+         default_push_callback: nil
+       }}
     else
-      conn_opts = [config: config, type: :trade, parent: self()]
+      conn_opts = [config: ws_config, type: :trade, parent: self()]
       {:ok, conn} = Longbridge.WSConnection.start_link(conn_opts)
+      schedule_heartbeat(ws_config.heartbeat_interval)
 
-      if name = Keyword.get(opts, :name) do
-        Process.register(self(), name)
-      end
-
-      schedule_heartbeat(config.heartbeat_interval)
-      {:ok, %{conn: conn, config: config, push_callbacks: %{}, default_push_callback: nil}}
+      {:ok,
+       %{
+         conn: conn,
+         ws_config: ws_config,
+         http_config: http_config,
+         push_callbacks: %{},
+         default_push_callback: nil
+       }}
     end
   end
 
   @impl true
-  def handle_call(:config, _from, state), do: {:reply, state.config, state}
+  def handle_call(:config, _from, state), do: {:reply, state.http_config, state}
+
+  @impl true
+  def handle_call(:session, _from, state) do
+    reply =
+      case state.conn do
+        nil -> {:ok, nil, nil}
+        conn -> WSConnection.get_session(conn)
+      end
+
+    {:reply, reply, state}
+  end
 
   @impl true
   def handle_call({:request, cmd_code, body, timeout}, _from, state) do
@@ -381,14 +415,14 @@ defmodule Longbridge.TradeContext do
   @impl true
   def handle_call({:http_get, path, params}, _from, state) do
     result =
-      HTTPClient.request(:get, path, "", state.config, params: build_query(params))
+      HTTPClient.request(:get, path, "", state.http_config, params: build_query(params))
 
     {:reply, unwrap_http(result), state}
   end
 
   @impl true
   def handle_call({:http_post, path, body}, _from, state) do
-    result = HTTPClient.request(:post, path, body, state.config)
+    result = HTTPClient.request(:post, path, body, state.http_config)
     {:reply, unwrap_http(result), state}
   end
 
@@ -416,7 +450,7 @@ defmodule Longbridge.TradeContext do
   @impl true
   def handle_info(:heartbeat, state) do
     if state.conn, do: send(state.conn, :heartbeat)
-    schedule_heartbeat(state.config.heartbeat_interval)
+    schedule_heartbeat(state.ws_config.heartbeat_interval)
     {:noreply, state}
   end
 

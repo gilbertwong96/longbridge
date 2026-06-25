@@ -20,6 +20,11 @@ defmodule Longbridge.AlertContext do
 
   alias Longbridge.{Config, HTTPClient}
 
+  # Longbridge renamed the alerts API from `/v1/alert/*` to
+  # `/v1/notify/reminders` (CRUD over the same resources). The wire shape
+  # for the request bodies is preserved.
+  @reminders_path "/v1/notify/reminders"
+
   @doc """
   Creates a new price alert.
 
@@ -33,33 +38,33 @@ defmodule Longbridge.AlertContext do
   @spec add_alert(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def add_alert(%Config{} = config, opts) do
     body = Jason.encode!(Map.new(opts))
-    HTTPClient.request_json(:post, "/v1/alert/add", body, config)
+    HTTPClient.request_json(:post, @reminders_path, body, config)
   end
 
   @doc "Lists all active price alerts."
   @spec list_alerts(Config.t()) :: {:ok, map()} | {:error, term()}
   def list_alerts(%Config{} = config) do
-    HTTPClient.request_json(:get, "/v1/alert/list", "", config)
+    HTTPClient.request_json(:get, @reminders_path, "", config)
   end
 
   @doc "Enables a price alert by `alert_id`."
   @spec enable_alert(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def enable_alert(%Config{} = config, alert_id) do
-    body = Jason.encode!(%{alert_id: alert_id})
-    HTTPClient.request_json(:post, "/v1/alert/enable", body, config)
+    body = Jason.encode!(%{alert_id: alert_id, enable: true})
+    HTTPClient.request_json(:post, @reminders_path, body, config)
   end
 
   @doc "Disables a price alert by `alert_id`."
   @spec disable_alert(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def disable_alert(%Config{} = config, alert_id) do
-    body = Jason.encode!(%{alert_id: alert_id})
-    HTTPClient.request_json(:post, "/v1/alert/disable", body, config)
+    body = Jason.encode!(%{alert_id: alert_id, enable: false})
+    HTTPClient.request_json(:post, @reminders_path, body, config)
   end
 
   @doc "Deletes a price alert by `alert_id`."
   @spec delete_alert(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def delete_alert(%Config{} = config, alert_id) do
     body = Jason.encode!(%{alert_id: alert_id})
-    HTTPClient.request_json(:post, "/v1/alert/delete", body, config)
+    HTTPClient.request_json(:delete, @reminders_path, body, config)
   end
 end
