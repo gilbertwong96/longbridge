@@ -208,6 +208,7 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 
 | Method | Sub-command | Notes |
 | --- | --- | --- |
+| `user_quote_profile/2` | `QueryUserQuoteProfile` (4) | `language` option, defaults to `"en"`. |
 | `static_info/2` | `QuerySecurityStaticInfo` (10) | |
 | `quote/2` | `QuerySecurityQuote` (11) | |
 | `option_quote/2` | `QueryOptionQuote` (12) | |
