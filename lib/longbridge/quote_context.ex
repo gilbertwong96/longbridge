@@ -341,10 +341,45 @@ defmodule Longbridge.QuoteContext do
     else
       conn_opts = [config: config, type: :quote, parent: self()]
       {:ok, conn} = WSConnection.start_link(conn_opts)
+
+      # Schedule the user_quote_profile fetch as a follow-up so it
+      # doesn't block init/1. Mirrors longbridge/openapi/rust/src/quote/
+      # core.rs::Core::connect().
+      send(self(), :apply_user_quote_profile)
+
       schedule_heartbeat(config.heartbeat_interval)
 
       {:ok, %{conn: conn, config: config}}
     end
+  end
+
+  defp apply_rate_limits(conn) do
+    # Build and send a UserQuoteProfileRequest via the WS connection.
+    # Failures (timeout, decode error, missing rate_limit field) are
+    # silently swallowed — we just fall back to no throttling.
+    language = "en"
+    req = %Q.UserQuoteProfileRequest{language: language}
+    body = req |> Protox.encode() |> elem(1) |> IO.iodata_to_binary()
+
+    case WSConnection.request(conn, @cmd_user_quote_profile, body) do
+      {:ok, resp_bytes, _req_id} ->
+        case Protox.decode(resp_bytes, Q.UserQuoteProfileResponse) do
+          {:ok, %{rate_limit: entries}} when is_list(entries) ->
+            if entries == [] do
+              :ok
+            else
+              WSConnection.apply_rate_limits(conn, entries)
+            end
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   @impl true
@@ -376,6 +411,12 @@ defmodule Longbridge.QuoteContext do
   # `receive` to handle `{:longbridge_push, msg}`.
   @impl true
   def handle_info({:longbridge_push, _msg}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:apply_user_quote_profile, state) do
+    apply_rate_limits(state.conn)
     {:noreply, state}
   end
 

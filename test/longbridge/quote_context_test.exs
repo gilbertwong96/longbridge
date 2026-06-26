@@ -256,10 +256,17 @@ defmodule Longbridge.QuoteContextTest do
 
   defp inspect_handler(resp_msg, decode_mod) do
     fn client, test_pid, cmd_code, req_id, body ->
-      send(test_pid, {:cmd_code, cmd_code})
+      # Skip the auto-fired user_quote_profile call (cmd 4) that the
+      # QuoteContext's init/1 fires to populate rate limits. The cmd
+      # code is still forwarded to the test process for assertion.
+      if cmd_code != 4 do
+        send(test_pid, {:cmd_code, cmd_code})
 
-      if decode_mod do
-        send(test_pid, {:req, Protox.decode!(body, decode_mod)})
+        if decode_mod do
+          send(test_pid, {:req, Protox.decode!(body, decode_mod)})
+        end
+      else
+        send(test_pid, {:cmd_code, cmd_code})
       end
 
       :gen_tcp.send(
@@ -955,15 +962,38 @@ defmodule Longbridge.QuoteContextTest do
         quote_level_detail: nil
       }
 
+      # Use a custom handler that distinguishes the QuoteContext's
+      # init-fired call (cmd_code 4) from the explicit call. Both
+      # share cmd_code 4, so we rely on the test process to discard
+      # the first :req (from init) and assert on the second.
+      resp_msg = resp
+      test_pid = self()
+      counter = :counters.new(1, [])
+
+      handler = fn client, _tp, cmd_code, req_id, body ->
+        _ = :counters.add(counter, 1, 1)
+        n = :counters.get(counter, 1)
+
+        decoded = if cmd_code == 4, do: Q.UserQuoteProfileRequest, else: nil
+        req = if decoded, do: Protox.decode!(body, decoded), else: nil
+
+        send(test_pid, {:uqp_call, n, cmd_code, req})
+
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp_msg)))
+        )
+      end
+
       {server, ctx} =
         connected_ctx(
           "sess-uqp#{System.unique_integer([:positive])}",
-          inspect_handler(resp, Q.UserQuoteProfileRequest)
+          handler
         )
 
       assert {:ok, %Q.UserQuoteProfileResponse{}} = QuoteContext.user_quote_profile(ctx)
-      assert_receive {:cmd_code, 4}
-      assert_receive {:req, req}
+      assert_receive {:uqp_call, 1, 4, _init_req}
+      assert_receive {:uqp_call, 2, 4, req}
       assert req.language == "en"
       cleanup(server, ctx)
     end
@@ -971,14 +1001,33 @@ defmodule Longbridge.QuoteContextTest do
     test "honors a custom :language option" do
       resp = %Q.UserQuoteProfileResponse{}
 
+      test_pid = self()
+      counter = :counters.new(1, [])
+
+      handler = fn client, _tp, cmd_code, req_id, body ->
+        _ = :counters.add(counter, 1, 1)
+        n = :counters.get(counter, 1)
+
+        decoded = if cmd_code == 4, do: Q.UserQuoteProfileRequest, else: nil
+        req = if decoded, do: Protox.decode!(body, decoded), else: nil
+
+        send(test_pid, {:uqp_call, n, cmd_code, req})
+
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp)))
+        )
+      end
+
       {server, ctx} =
         connected_ctx(
           "sess-uqpl#{System.unique_integer([:positive])}",
-          inspect_handler(resp, Q.UserQuoteProfileRequest)
+          handler
         )
 
       assert {:ok, _} = QuoteContext.user_quote_profile(ctx, language: "zh-HK")
-      assert_receive {:req, req}
+      assert_receive {:uqp_call, 1, 4, _init_req}
+      assert_receive {:uqp_call, 2, 4, req}
       assert req.language == "zh-HK"
       cleanup(server, ctx)
     end
@@ -988,20 +1037,38 @@ defmodule Longbridge.QuoteContextTest do
     test "QuoteContext stays alive after receiving push data" do
       sid = "sess-push#{System.unique_integer([:positive])}"
 
-      handler = fn client, _tp, cmd_code, req_id, _body ->
+      # Default handler doesn't reply to the auto-fired user_quote_profile
+      # call (cmd 4) so it would time out and block init for ~10s. Add
+      # a noop reply so the QuoteContext's init can proceed.
+      user_quote_resp = %Q.UserQuoteProfileResponse{
+        rate_limit: [],
+        quote_level_detail: nil
+      }
+
+      handler = fn client, _tp, cmd_code, req_id, body ->
         :gen_tcp.send(client, ws_encode_binary(build_push(101, "push-data")))
 
-        if cmd_code == 11 do
-          :gen_tcp.send(
-            client,
-            ws_encode_binary(
-              build_response(
-                cmd_code,
-                req_id,
-                encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+        cond do
+          cmd_code == 4 ->
+            :gen_tcp.send(
+              client,
+              ws_encode_binary(build_response(cmd_code, req_id, encode_msg(user_quote_resp)))
+            )
+
+          cmd_code == 11 ->
+            :gen_tcp.send(
+              client,
+              ws_encode_binary(
+                build_response(
+                  cmd_code,
+                  req_id,
+                  encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+                )
               )
             )
-          )
+
+          true ->
+            :ok
         end
       end
 

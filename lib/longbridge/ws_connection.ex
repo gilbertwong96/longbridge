@@ -26,6 +26,7 @@ defmodule Longbridge.WSConnection do
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol
   alias Longbridge.Protocol.Header
+  alias Longbridge.WSConnection.RateLimit
   alias Mint.HTTP
   alias Mint.WebSocket
   import Mint.HTTP, only: [put_private: 3]
@@ -54,6 +55,12 @@ defmodule Longbridge.WSConnection do
   end
 
   @doc false
+  @spec apply_rate_limits(pid(), [map()]) :: :ok
+  def apply_rate_limits(pid, entries) when is_list(entries) do
+    GenServer.call(pid, {:apply_rate_limits, entries})
+  end
+
+  @doc false
   @spec get_session(pid()) :: {:ok, String.t(), integer()} | {:error, term()}
   def get_session(pid) do
     GenServer.call(pid, :get_session)
@@ -66,6 +73,8 @@ defmodule Longbridge.WSConnection do
     config = Keyword.fetch!(opts, :config)
     type = Keyword.fetch!(opts, :type)
     parent = Keyword.fetch!(opts, :parent)
+
+    RateLimit.init()
 
     state = %{
       config: config,
@@ -100,8 +109,7 @@ defmodule Longbridge.WSConnection do
         state = cleanup_socket(state)
         state = %{state | connection_state: :disconnected, session_id: nil, buffer: <<>>}
         broadcast(state, {:disconnected, reason})
-        state = maybe_reconnect(state, reason)
-        {:ok, state}
+        {:ok, maybe_reconnect(state, reason)}
     end
   end
 
@@ -158,6 +166,21 @@ defmodule Longbridge.WSConnection do
   @impl true
   def handle_call({:request, cmd_code, body, timeout}, from, state) do
     if state.connection_state == :active do
+      # Per-command-code leaky-bucket throttle. Returns 0 when the
+      # bucket has a token; otherwise the milliseconds the caller
+      # must wait. The bucket is decremented before the sleep so a
+      # queued caller can't race past an empty bucket.
+      case RateLimit.wait_ms(cmd_code) do
+        :infinity ->
+          :ok
+
+        0 ->
+          :ok
+
+        ms when is_integer(ms) and ms > 0 ->
+          Process.sleep(ms)
+      end
+
       req_id = next_request_id(state)
       {packed_body, gzipped} = maybe_gzip(body, state.config.gzip_threshold)
 
@@ -200,6 +223,12 @@ defmodule Longbridge.WSConnection do
   @impl true
   def handle_call(:get_session, _from, state) do
     {:reply, {:ok, state.session_id, state.expires}, state}
+  end
+
+  @impl true
+  def handle_call({:apply_rate_limits, entries}, _from, state) do
+    RateLimit.set_limits(entries)
+    {:reply, :ok, state}
   end
 
   @impl true
