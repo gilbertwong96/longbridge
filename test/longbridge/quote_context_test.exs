@@ -942,6 +942,48 @@ defmodule Longbridge.QuoteContextTest do
     end
   end
 
+  describe "user_quote_profile/2" do
+    test "sends a UserQuoteProfileRequest and returns the response" do
+      resp = %Q.UserQuoteProfileResponse{
+        member_id: 15_766_270,
+        quote_level: "Lv1",
+        subscribe_limit: 500,
+        history_candlestick_limit: 1000,
+        rate_limit: [
+          %Q.RateLimit{command: :QuerySecurityQuote, limit: 600, burst: 600}
+        ],
+        quote_level_detail: nil
+      }
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-uqp#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.UserQuoteProfileRequest)
+        )
+
+      assert {:ok, %Q.UserQuoteProfileResponse{}} = QuoteContext.user_quote_profile(ctx)
+      assert_receive {:cmd_code, 4}
+      assert_receive {:req, req}
+      assert req.language == "en"
+      cleanup(server, ctx)
+    end
+
+    test "honors a custom :language option" do
+      resp = %Q.UserQuoteProfileResponse{}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-uqpl#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.UserQuoteProfileRequest)
+        )
+
+      assert {:ok, _} = QuoteContext.user_quote_profile(ctx, language: "zh-HK")
+      assert_receive {:req, req}
+      assert req.language == "zh-HK"
+      cleanup(server, ctx)
+    end
+  end
+
   describe "push messages" do
     test "QuoteContext stays alive after receiving push data" do
       sid = "sess-push#{System.unique_integer([:positive])}"

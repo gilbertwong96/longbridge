@@ -27,7 +27,10 @@ defmodule VerifyDecodeFix do
     {:quote, [["AAPL.US", "MSFT.US", "GOOG.US", "TSLA.US", "NVDA.US"]]},
     {:depth, ["AAPL.US"]},
     {:brokers, ["AAPL.US"]},
-    {:option_chain_strike_info, ["AAPL.US", "20240119"]}
+    {:option_chain_strike_info, ["AAPL.US", "20240119"]},
+    # user_quote_profile/2 (cmd_code 4) — the new UserQuoteProfileRequest
+    # method, mirrors what the Rust SDK calls once on connect.
+    {:user_quote_profile, []}
   ]
 
   def run do

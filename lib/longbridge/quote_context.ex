@@ -35,6 +35,7 @@ defmodule Longbridge.QuoteContext do
 
   # ── Command codes from quote API ─────────────────────────
 
+  @cmd_user_quote_profile 4
   @cmd_subscription 5
   @cmd_subscribe 6
   @cmd_unsubscribe 7
@@ -76,6 +77,38 @@ defmodule Longbridge.QuoteContext do
   @spec session(pid()) :: {:ok, String.t(), integer()} | {:error, term()}
   def session(pid) do
     GenServer.call(pid, :session)
+  end
+
+  @doc """
+  Queries the user's quote profile (cmd_code 4).
+
+  Returns the user's `member_id`, `quote_level`, `subscribe_limit`,
+  `history_candlestick_limit`, per-command `rate_limit`, and the
+  `quote_level_detail` (subscribed quote packages by market).
+
+  ## Options
+
+  - `:language` — response language for `quote_level_detail`.
+    Accepts `"zh-CN"`, `"zh-HK"`, or `"en"`. Defaults to `"en"`.
+
+  Mirrors `longbridge/openapi/rust/src/quote/core.rs::Core::connect()`,
+  which calls `QueryUserQuoteProfile` once after auth. The Rust SDK
+  uses the response to populate rate-limit throttling; we expose the
+  raw response so callers can do the same.
+
+  ## Example
+
+      {:ok, profile} = Longbridge.QuoteContext.user_quote_profile(ctx)
+      profile.member_id
+      profile.subscribe_limit
+      profile.rate_limit
+  """
+  @spec user_quote_profile(pid(), keyword()) ::
+          {:ok, Q.UserQuoteProfileResponse.t()} | {:error, term()}
+  def user_quote_profile(pid, opts \\ []) do
+    language = Keyword.get(opts, :language, "en")
+    req = %Q.UserQuoteProfileRequest{language: language}
+    request(pid, @cmd_user_quote_profile, req, Q.UserQuoteProfileResponse)
   end
 
   # ── Quote API Methods ────────────────────────────────────
