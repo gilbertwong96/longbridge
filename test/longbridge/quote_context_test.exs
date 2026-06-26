@@ -901,6 +901,45 @@ defmodule Longbridge.QuoteContextTest do
       assert {:error, _} = QuoteContext.warrant_issuer_info(ctx)
       cleanup(server, ctx)
     end
+
+    test "warrant_issuer_info/1 returns {:error, {:decode_error, _}} when the response is malformed" do
+      # Send a response body that the proto decoder cannot parse.
+      # The first byte 0xFF is not a valid protobuf tag, so Protox
+      # raises Protox.DecodingError. The fix in QuoteContext wraps
+      # the raise into `{:error, {:decode_error, _}}` so callers
+      # never see a raw exception.
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, <<0xFF, 0xFE, 0xFD>>))
+        )
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-decode#{System.unique_integer([:positive])}", handler)
+
+      assert {:error, {:decode_error, %Protox.DecodingError{}}} =
+               QuoteContext.warrant_issuer_info(ctx)
+
+      cleanup(server, ctx)
+    end
+
+    test "quote/2 returns {:error, {:decode_error, _}} on malformed response body" do
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, <<0xFF, 0xFE, 0xFD>>))
+        )
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-decode-q#{System.unique_integer([:positive])}", handler)
+
+      assert {:error, {:decode_error, %Protox.DecodingError{}}} =
+               QuoteContext.quote(ctx, ["AAPL.US"])
+
+      cleanup(server, ctx)
+    end
   end
 
   describe "push messages" do

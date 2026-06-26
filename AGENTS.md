@@ -101,3 +101,10 @@ There are **no integration tests** — the SDK is exercised against a real Longb
 - `mix ci` fails on step 7 (`dialyzer`) — usually a header field with the wrong nullable type. `Longbridge.Protocol.Header.t/0` declares `request_id`, `timeout`, `status_code` as `non_neg_integer() | nil` because each packet type only sets the fields it carries.
 - Push data never arrives — check that the caller process has `Longbridge.WSConnection.subscribe_push/2` registered (the contexts do this automatically, but custom consumers need to opt in).
 - Auth hangs forever — the `Longbridge.Config.token` is `nil`; `do_auth/1` returns `{:error, :no_token}` and the GenServer stops. Set the token in your config or use a mock for testing.
+
+## Protobufs and the decode pipeline
+
+- The vendored protos under `protos/` are bit-for-bit identical to `longbridge/openapi-protobufs@gen/go/v0.7.0` and to the `main` branch's head. The pin **is not stale** — both `longbridge/openapi-go` and `longbridge/openapi`'s Rust SDK submodule use the same `v0.7.0` / commit `c3c1a3e1` (verified 2026-06).
+- The server gzip-compresses response bodies that exceed its internal size threshold, regardless of the `gzip` flag we send on the request. `Longbridge.Protocol.unpack/1` reads `Header.gzip` and calls `:zlib.gunzip/1` when set. **This was the cause of every "5+ responses fail to decode" symptom** before commit `9c8eaf3`. Don't remove the decompression — test it with `scripts/verify_decode_fix.exs` if you doubt it.
+- `Protox.decode!/2` raises `Protox.DecodingError` on a malformed body. `Longbridge.QuoteContext` wraps every decode in a `try/rescue Protox.DecodingError` that returns `{:error, {:decode_error, exception}}` so callers always see `{:ok, _} | {:error, _}`. Don't undo that wrapping to "let it crash" — the contract of the public API is the wrap.
+- The response shape can drift (e.g. a new enum value). Protox will return the unknown enum as an atom other than what callers expect. If you see a decode error, compare `protos/quote.proto` against `openapi-protobufs/quote/api.proto@main` to see if upstream added a field.

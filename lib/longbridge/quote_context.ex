@@ -354,7 +354,7 @@ defmodule Longbridge.QuoteContext do
 
     case GenServer.call(pid, {:request, cmd_code, body, 10_000}, 15_000) do
       {:ok, resp_body, _req_id} ->
-        {:ok, Protox.decode!(resp_body, resp_module)}
+        decode_response(resp_body, resp_module)
 
       {:error, reason} ->
         {:error, reason}
@@ -370,11 +370,22 @@ defmodule Longbridge.QuoteContext do
   defp request_empty(pid, cmd_code, resp_module) do
     case GenServer.call(pid, {:request, cmd_code, <<>>, 10_000}, 15_000) do
       {:ok, resp_body, _req_id} ->
-        {:ok, Protox.decode!(resp_body, resp_module)}
+        decode_response(resp_body, resp_module)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # Decodes a response body, turning Protox decode failures into
+  # `{:error, {:decode_error, exception}}` so the public API contract
+  # (`{:ok, _} | {:error, _}`) is preserved even when the server
+  # returns a malformed payload (schema drift, truncated frame, etc.).
+  defp decode_response(resp_body, resp_module) do
+    {:ok, Protox.decode!(resp_body, resp_module)}
+  rescue
+    exception in [Protox.DecodingError] ->
+      {:error, {:decode_error, exception}}
   end
 
   defp schedule_heartbeat(interval) do

@@ -627,9 +627,7 @@ defmodule Longbridge.WSConnection do
     case Protocol.unpack(frame_data) do
       {:ok, header, body, _rest} ->
         if header.cmd_code == Protocol.cmd_auth() and header.status_code == 0 do
-          auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
-          state = %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}
-          {:ok, state}
+          decode_auth_body(state, body)
         else
           {:error, {:auth_failed, header.status_code}}
         end
@@ -637,6 +635,19 @@ defmodule Longbridge.WSConnection do
       {:error, reason} ->
         {:error, {:unpack, reason}}
     end
+  end
+
+  defp decode_auth_body(state, body) do
+    auth_resp = Protox.decode!(body, Ctrl.AuthResponse)
+    state = %{state | session_id: auth_resp.session_id, expires: auth_resp.expires}
+    {:ok, state}
+  rescue
+    exception in [Protox.DecodingError] ->
+      Logger.warning(
+        "[Longbridge.#{state.type}] Auth response decode failed: #{Exception.message(exception)}"
+      )
+
+      {:error, {:auth_decode_failed, exception}}
   end
 
   defp build_auth_request(state, token) do
