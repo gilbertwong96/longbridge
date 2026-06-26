@@ -34,3 +34,6 @@ longbridge-*.tar
 # Tool artifacts
 /.expert/
 
+# macOS Finder metadata
+.DS_Store
+

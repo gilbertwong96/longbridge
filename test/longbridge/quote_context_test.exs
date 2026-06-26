@@ -488,6 +488,19 @@ defmodule Longbridge.QuoteContextTest do
       assert {:error, _} = QuoteContext.unsubscribe(ctx, ["AAPL.US"], [:QUOTE])
       cleanup(server, ctx)
     end
+
+    test "subscribe returns error when server drops the connection" do
+      handler = fn client, _tp, _cc, _ri, _body ->
+        :gen_tcp.close(client)
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-se#{System.unique_integer([:positive])}", handler)
+
+      Process.sleep(50)
+      assert {:error, _} = QuoteContext.subscribe(ctx, ["AAPL.US"], [:QUOTE])
+      cleanup(server, ctx)
+    end
   end
 
   describe "subscription/1" do
@@ -854,6 +867,38 @@ defmodule Longbridge.QuoteContextTest do
                QuoteContext.capital_flow_distribution(ctx, "AAPL.US")
 
       assert_receive {:cmd_code, 25}
+      cleanup(server, ctx)
+    end
+  end
+
+  describe "request_empty error paths" do
+    # request_empty/3 is the helper used by participant_broker_ids/1,
+    # warrant_issuer_info/1, and market_trade_period/1. The error branch
+    # is hit when the underlying connection drops between the request
+    # being sent and the response arriving.
+    test "participant_broker_ids/1 returns error when server drops the connection" do
+      handler = fn client, _tp, _cc, _ri, _body ->
+        :gen_tcp.close(client)
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-pbe#{System.unique_integer([:positive])}", handler)
+
+      Process.sleep(50)
+      assert {:error, _} = QuoteContext.participant_broker_ids(ctx)
+      cleanup(server, ctx)
+    end
+
+    test "warrant_issuer_info/1 returns error when server drops the connection" do
+      handler = fn client, _tp, _cc, _ri, _body ->
+        :gen_tcp.close(client)
+      end
+
+      {server, ctx} =
+        connected_ctx("sess-wie#{System.unique_integer([:positive])}", handler)
+
+      Process.sleep(50)
+      assert {:error, _} = QuoteContext.warrant_issuer_info(ctx)
       cleanup(server, ctx)
     end
   end

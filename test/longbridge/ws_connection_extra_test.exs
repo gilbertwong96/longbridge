@@ -133,6 +133,22 @@ defmodule Longbridge.WSConnectionExtraTest do
     [header, payload]
   end
 
+  # Encodes a server-to-client WebSocket ping frame (FIN + opcode 0x09).
+  # Used to exercise the client's pong reply path in
+  # Longbridge.WSConnection.handle_frames/2.
+  defp ws_encode_ping(payload) do
+    len = byte_size(payload)
+
+    header =
+      cond do
+        len < 126 -> <<0x89, len::8>>
+        len < 65_536 -> <<0x89, 126, len::16-big>>
+        true -> <<0x89, 127, len::64-big>>
+      end
+
+    [header, payload]
+  end
+
   defp ws_recv(socket, timeout \\ 10_000) do
     case :gen_tcp.recv(socket, 2, timeout) do
       {:ok, <<fin_opcode::8, mask_len::8>>} ->
@@ -220,7 +236,8 @@ defmodule Longbridge.WSConnectionExtraTest do
       quote_ws_url: "ws://127.0.0.1:#{port}",
       heartbeat_interval: Keyword.get(opts, :heartbeat_interval, 60_000),
       idle_timeout: Keyword.get(opts, :idle_timeout, 60_000),
-      request_timeout: Keyword.get(opts, :request_timeout, 10_000)
+      request_timeout: Keyword.get(opts, :request_timeout, 10_000),
+      gzip_threshold: Keyword.get(opts, :gzip_threshold, 1024)
     )
   end
 
@@ -664,6 +681,101 @@ defmodule Longbridge.WSConnectionExtraTest do
         WSConnection.start_link(config: config, type: :quote, parent: test_pid)
 
       assert_receive {:longbridge, ^conn, {:connected, _}}, 2_000
+      stop_server(conn)
+    end
+  end
+
+  describe "URL parsing fallthroughs" do
+    # parse_ws_url/1 uses private ws_scheme/1 and ws_default_port/1 helpers
+    # that are only reached through an end-to-end start_link. Drive the
+    # private clauses via URLs that hit the catch-all branches.
+    test "non-ws scheme (e.g. ftp://) hits ws_scheme(_) catch-all" do
+      config = Config.new(token: "t", quote_ws_url: "ftp://example.com")
+      {:ok, conn} = WSConnection.start_link(config: config, type: :quote, parent: self())
+      # We don't care about the connect failure here — only that
+      # parse_ws_url/1 ran and resolved the scheme via the catch-all.
+      assert_receive {:longbridge, ^conn, {:disconnected, _}}, 5_000
+      stop_server(conn)
+    end
+
+    test "schemeless URL with no port hits both ws_scheme(_) and ws_default_port(_)" do
+      # `URI.parse("//example.com")` returns scheme: nil and port: nil,
+      # which forces parse_ws_url/1 through both catch-all clauses.
+      config = Config.new(token: "t", quote_ws_url: "//example.com")
+      {:ok, conn} = WSConnection.start_link(config: config, type: :quote, parent: self())
+      assert_receive {:longbridge, ^conn, {:disconnected, _}}, 5_000
+      stop_server(conn)
+    end
+  end
+
+  describe "WebSocket ping from server" do
+    test "client replies with a pong frame and stays connected" do
+      test_pid = self()
+
+      {:ok, listen} =
+        :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+      {:ok, port} = :inet.port(listen)
+
+      srv_pid =
+        spawn_link(fn ->
+          {:ok, client} = :gen_tcp.accept(listen, 10_000)
+          send(test_pid, {:server, :accepted})
+
+          {:ok, http_request} = read_http_request(client)
+          ws_key = extract_header(http_request, "sec-websocket-key")
+          ws_accept = compute_ws_accept(ws_key)
+          :gen_tcp.send(client, build_upgrade_response(ws_accept))
+          send(test_pid, {:server, :upgrade_sent})
+
+          {:ok, _opcode, auth_payload} = ws_recv(client)
+          {:ok, auth_header, _auth_body, <<>>} = Protocol.unpack(auth_payload)
+
+          auth_resp =
+            build_auth_response(
+              auth_header.request_id,
+              "sess-ping",
+              System.os_time(:second) + 3600,
+              0
+            )
+
+          :gen_tcp.send(client, ws_encode_binary(auth_resp))
+          send(test_pid, {:server, :auth_response_sent})
+
+          receive do
+            :send_ping ->
+              :gen_tcp.send(client, ws_encode_ping("ping-payload"))
+              send(test_pid, :ping_sent)
+          after
+            5_000 -> :ok
+          end
+
+          # The client should reply with a pong frame (opcode 0x0A after the
+          # FIN bit is stripped in ws_recv/2).
+          case ws_recv(client, 5_000) do
+            {:ok, 0x0A, _pong_data} ->
+              send(test_pid, :pong_received)
+
+            other ->
+              send(test_pid, {:pong_unexpected, other})
+          end
+
+          receive(do: (:stop -> :ok))
+          :gen_tcp.close(client)
+          :gen_tcp.close(listen)
+        end)
+
+      Process.unlink(srv_pid)
+
+      config = ws_config(port)
+      {:ok, conn} = WSConnection.start_link(config: config, type: :quote, parent: test_pid)
+      assert_receive {:longbridge, ^conn, {:connected, _}}, 2_000
+
+      send(srv_pid, :send_ping)
+      assert_receive :ping_sent, 2_000
+      assert_receive :pong_received, 2_000
+
+      send(srv_pid, :stop)
       stop_server(conn)
     end
   end
