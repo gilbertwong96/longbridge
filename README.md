@@ -349,9 +349,10 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | --- | --- |
 | `add_alert/2` | Create a price alert |
 | `list_alerts/1` | List active price alerts |
-| `enable_alert/2` | Enable a price alert |
-| `disable_alert/2` | Disable a price alert |
-| `delete_alert/2` | Delete a price alert |
+| `update/3` | Update an alert (enable/disable) — re-sends the full item, use this instead of `enable_alert`/`disable_alert` |
+| `enable_alert/2` | _Deprecated._ Enable a price alert by `alert_id` (may fail server-side for alerts created through `add_alert/2`). |
+| `disable_alert/2` | _Deprecated._ Disable a price alert by `alert_id`. |
+| `delete_alert/2` | Delete one or more price alerts by id (string or list of strings) |
 
 ### `Longbridge.DCAContext` (HTTP)
 
