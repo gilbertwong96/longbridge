@@ -651,4 +651,116 @@ defmodule Longbridge.QuoteHTTPContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "filings/2" do
+    test "queries the filings endpoint with the symbol as a query param" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/filings"
+          assert request =~ "symbol=AAPL.US"
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{
+                items: [
+                  %{
+                    "id" => "filing-1",
+                    "title" => "10-Q Quarterly Report",
+                    "description" => "Q3 2024 quarterly report",
+                    "file_name" => "aapl-10q-2024q3.pdf",
+                    "file_urls" => ["https://example.com/aapl-10q.pdf"],
+                    "publish_at" => 1_730_000_000
+                  }
+                ]
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, [filing]} = QuoteHTTPContext.filings(config_with(server.port), "AAPL.US")
+      assert filing["id"] == "filing-1"
+      assert filing["title"] == "10-Q Quarterly Report"
+      assert filing["publish_at"] == 1_730_000_000
+
+      stop_fake_http_server(server)
+    end
+
+    test "URL-encodes symbols with special characters" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "symbol=00700.HK"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+          )
+        end)
+
+      assert {:ok, []} = QuoteHTTPContext.filings(config_with(server.port), "00700.HK")
+
+      stop_fake_http_server(server)
+    end
+
+    test "returns an empty list when items is missing from the response" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+          )
+        end)
+
+      assert {:ok, []} = QuoteHTTPContext.filings(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "symbol_to_counter_ids/2" do
+    test "POSTs symbols and returns the result map" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "POST /v1/quote/symbol-to-counter-ids"
+          assert request =~ ~s("ticker_regions":["AAPL.US","700.HK"])
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{
+                list: %{
+                  "AAPL.US" => "ST/US/AAPL",
+                  "700.HK" => "ST/HK/700"
+                }
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, %{"AAPL.US" => "ST/US/AAPL", "700.HK" => "ST/HK/700"}} =
+               QuoteHTTPContext.symbol_to_counter_ids(
+                 config_with(server.port),
+                 ["AAPL.US", "700.HK"]
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "returns an empty map when the response has no list field" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+          )
+        end)
+
+      assert {:ok, %{}} =
+               QuoteHTTPContext.symbol_to_counter_ids(config_with(server.port), ["AAPL.US"])
+
+      stop_fake_http_server(server)
+    end
+  end
 end

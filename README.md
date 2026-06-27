@@ -497,6 +497,8 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 | `create_watchlist_group/3` | Create a watchlist group; returns `{:ok, group_id}` |
 | `delete_watchlist_group/3` | Delete a watchlist group (`purge: false` by default) |
 | `update_watchlist_group/5` | Update a watchlist group (`:add | :remove | :replace` modes) |
+| `filings/2` | Regulatory filings for a symbol (returns list with `id`, `title`, `file_urls`, `publish_at`, ...) |
+| `symbol_to_counter_ids/2` | Batch-convert user symbols to internal counter_ids (HTTP-only; for local-first resolution see `Longbridge.Symbol.resolve_counter_ids/2`) |
 
 ### Push command codes (consumer-side)
 

@@ -30,6 +30,8 @@ defmodule Longbridge.QuoteHTTPContext do
   @history_market_temperature_path "/v1/quote/history_market_temperature"
   @short_trades_path "/v1/quote/short-trades"
   @watchlist_groups_path "/v1/watchlist/groups"
+  @filings_path "/v1/quote/filings"
+  @symbol_to_counter_ids_path "/v1/quote/symbol-to-counter-ids"
 
   @doc """
   Returns short interest data for a symbol.
@@ -289,6 +291,66 @@ defmodule Longbridge.QuoteHTTPContext do
 
     case HTTPClient.request_json(:post, @watchlist_pinned_path, body, config) do
       {:ok, _response} -> :ok
+      error -> error
+    end
+  end
+
+  @doc """
+  Returns the filings list for a symbol.
+
+  Endpoint: `GET /v1/quote/filings`
+
+  Mirrors `QuoteContext::Filings` from `longbridge/openapi/rust` and
+  `QuoteContext.Filings` from `longbridge/openapi-go`.
+
+  Each item has the shape:
+
+      %{
+        "id"          => String.t(),
+        "title"       => String.t(),
+        "description" => String.t(),
+        "file_name"   => String.t(),
+        "file_urls"   => [String.t()],
+        "publish_at"  => non_neg_integer()
+      }
+
+  `publish_at` is a Unix timestamp in seconds; convert with
+  `DateTime.from_unix!/2` or `Longbridge.Decimal` as appropriate.
+  """
+  @spec filings(Config.t(), String.t()) :: {:ok, [map()]} | {:error, term()}
+  def filings(%Config{} = config, symbol) when is_binary(symbol) do
+    params = "symbol=#{URI.encode_www_form(symbol)}"
+
+    case HTTPClient.request_json(:get, @filings_path, "", config, params: params) do
+      {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
+      {:ok, _other} -> {:ok, []}
+      error -> error
+    end
+  end
+
+  @doc """
+  Batch-converts user-facing symbols to their internal
+  `counter_id`s via the remote API.
+
+  Endpoint: `POST /v1/quote/symbol-to-counter-ids`
+
+  Mirrors `QuoteContext::SymbolToCounterIds` from
+  `longbridge/openapi/rust` and `QuoteContext.SymbolToCounterIds`
+  from `longbridge/openapi-go`.
+
+  Returns a map of `symbol => counter_id`. Symbols the backend
+  does not recognize are omitted. For local-first resolution with
+  embedded directory + cache, use
+  `Longbridge.Symbol.resolve_counter_ids/2` instead.
+  """
+  @spec symbol_to_counter_ids(Config.t(), [String.t()]) ::
+          {:ok, %{String.t() => String.t()}} | {:error, term()}
+  def symbol_to_counter_ids(%Config{} = config, symbols) when is_list(symbols) do
+    body = Jason.encode!(%{ticker_regions: symbols})
+
+    case HTTPClient.request_json(:post, @symbol_to_counter_ids_path, body, config) do
+      {:ok, %{"list" => list}} when is_map(list) -> {:ok, list}
+      {:ok, _other} -> {:ok, %{}}
       error -> error
     end
   end
