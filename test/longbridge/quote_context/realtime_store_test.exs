@@ -68,6 +68,61 @@ defmodule Longbridge.QuoteContext.RealtimeStoreTest do
       store = start_store()
       assert {:ok, []} = RealtimeStore.get_trades(store, "AAPL.US", 50)
     end
+
+    test "appends trades across multiple pushes" do
+      store = start_store()
+      push1 = %Q.PushTrade{symbol: "AAPL.US", sequence: 1, trade: [%Q.Trade{price: "1"}]}
+      push2 = %Q.PushTrade{symbol: "AAPL.US", sequence: 2, trade: [%Q.Trade{price: "2"}]}
+      RealtimeStore.put_trades(store, push1)
+      RealtimeStore.put_trades(store, push2)
+
+      assert {:ok, [t1, t2]} = RealtimeStore.get_trades(store, "AAPL.US", 10)
+      assert t1.price == "1"
+      assert t2.price == "2"
+    end
+  end
+
+  describe "put_depth/2 + get_depth/2" do
+    test "stores and returns the most recent PushDepth" do
+      store = start_store()
+      push = %Q.PushDepth{symbol: "AAPL.US", sequence: 1}
+      RealtimeStore.put_depth(store, push)
+      assert {:ok, ^push} = RealtimeStore.get_depth(store, "AAPL.US")
+    end
+
+    test "returns nil for symbols without depth" do
+      store = start_store()
+      assert {:ok, nil} = RealtimeStore.get_depth(store, "AAPL.US")
+    end
+  end
+
+  describe "put_brokers/2 + get_brokers/2" do
+    test "stores and returns the most recent PushBrokers" do
+      store = start_store()
+      push = %Q.PushBrokers{symbol: "AAPL.US", sequence: 1}
+      RealtimeStore.put_brokers(store, push)
+      assert {:ok, ^push} = RealtimeStore.get_brokers(store, "AAPL.US")
+    end
+
+    test "returns nil for symbols without brokers" do
+      store = start_store()
+      assert {:ok, nil} = RealtimeStore.get_brokers(store, "AAPL.US")
+    end
+  end
+
+  describe "stop/1" do
+    test "stops the store and removes the ETS table" do
+      store = start_store()
+      assert Process.alive?(store)
+      assert :ok = RealtimeStore.stop(store)
+      refute Process.alive?(store)
+    end
+
+    test "returns :ok even if the store is already dead" do
+      store = start_store()
+      :ok = RealtimeStore.stop(store)
+      assert :ok = RealtimeStore.stop(store)
+    end
   end
 
   describe "reset/1" do
