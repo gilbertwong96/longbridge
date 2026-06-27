@@ -99,6 +99,23 @@ endpoint, signed with HMAC-SHA256 using the same scheme as the
 official Python / Go SDKs. No new dependency beyond the existing
 `finch` (HTTP) and `jason` (JSON) deps is required.
 
+## Working with monetary values
+
+Longbridge returns monetary fields as strings to preserve
+precision. The `Longbridge.Decimal` helper provides two layers
+of support:
+
+```elixir
+# No dependency required — returns int or float:
+price = Longbridge.Decimal.parse_number("0.0723")
+
+# For exact arithmetic, add :decimal to your app's deps and use:
+dec = Longbridge.Decimal.to_bigdecimal("3241500000000")
+```
+
+`to_bigdecimal/1` and `sum_bigdecimal/1` raise `ArgumentError` with
+a hint if `:decimal` is not loaded.
+
 ## OAuth 2.0 (browser flow)
 
 ```elixir
@@ -294,6 +311,7 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 | `option_chain_date/2` | `QueryOptionChainDate` (20) | |
 | `option_chain_strike_info/3` | `QueryOptionChainDateStrikeInfo` (21) | |
 | `warrant_issuer_info/1` | `QueryWarrantIssuerInfo` (22) | |
+| `warrant_list/2` | `QueryWarrantFilterList` (23) | Filtered HK warrant list. Options: `:symbol`, `:language`, `:sort_by`, `:sort_order`, `:type`, `:expiry_date`, `:status`, `:price_type`, `:issuer`. |
 | `market_trade_period/1` | `QueryMarketTradePeriod` (8) | |
 | `market_trade_day/4` | `QueryMarketTradeDay` (9) | |
 | `calc_index/3` | `QuerySecurityCalcIndex` (26) | `calc_indexes` is a list of `CalcIndex` atoms. |
