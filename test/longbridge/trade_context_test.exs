@@ -396,6 +396,88 @@ defmodule Longbridge.TradeContextTest do
     end
   end
 
+  describe "401 token refresh retry" do
+    test "retries once with a refreshed token on a 401 response" do
+      request_count = :counters.new(1, [])
+
+      server =
+        start_fake_http_server(fn req, sock ->
+          :counters.add(request_count, 1, 1)
+          req_num = :counters.get(request_count, 1)
+          [request_line | _] = String.split(req, "\r\n", parts: 2)
+          [method, path_with_ver] = String.split(request_line, " ", parts: 2)
+          path = hd(String.split(path_with_ver, " ", parts: 2))
+
+          cond do
+            # First request: today_orders → 401.
+            req_num == 1 ->
+              body = ~s({"code":401})
+
+              :gen_tcp.send(
+                sock,
+                "HTTP/1.1 401 Unauthorized\r\n" <>
+                  "Content-Length: #{byte_size(body)}\r\n" <>
+                  "Connection: close\r\n\r\n" <> body
+              )
+
+            # Refresh request → success.
+            method == "GET" and String.contains?(path, "/v1/token/refresh") ->
+              body =
+                ~s({"code":0,"data":{"token":"new-tok","expired_at":1900000000}})
+
+              :gen_tcp.send(
+                sock,
+                "HTTP/1.1 200 OK\r\n" <>
+                  "Content-Length: #{byte_size(body)}\r\n" <>
+                  "Connection: close\r\n\r\n" <> body
+              )
+
+            # Subsequent requests → success.
+            true ->
+              body = ~s({"code":0,"data":{"orders":[]}})
+
+              :gen_tcp.send(
+                sock,
+                "HTTP/1.1 200 OK\r\n" <>
+                  "Content-Length: #{byte_size(body)}\r\n" <>
+                  "Connection: close\r\n\r\n" <> body
+              )
+          end
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, %{"orders" => []}} = TradeContext.today_orders(ctx)
+
+      # Original (401) + refresh + retry = 3 HTTP calls.
+      assert :counters.get(request_count, 1) == 3
+    end
+
+    test "returns the original 401 error if token refresh fails" do
+      server =
+        start_fake_http_server(fn _req, sock ->
+          body = ~s({"code":401})
+
+          :gen_tcp.send(
+            sock,
+            "HTTP/1.1 401 Unauthorized\r\n" <>
+              "Content-Length: #{byte_size(body)}\r\n" <>
+              "Connection: close\r\n\r\n" <> body
+          )
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:error, {:http_status, 401, _}} = TradeContext.today_orders(ctx)
+    end
+  end
+
   describe "API error handling" do
     test "returns error tuple for API error codes" do
       server =

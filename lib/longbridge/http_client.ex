@@ -29,6 +29,19 @@ defmodule Longbridge.HTTPClient do
   @default_finch Longbridge.Finch
   @default_expired_at_seconds 60 * 60 * 24 * 90
 
+  @typedoc """
+  Optional OAuth token refresher.
+
+  Called by `request/5` to obtain a fresh token before retrying a
+  request that returned an auth error. The refresher receives the
+  current config and returns either a new config with a fresh
+  token (which `request/5` will use to retry the request once) or
+  an error tuple (which `request/5` returns unchanged).
+
+  Used together with the `:refresh_on_401` option.
+  """
+  @type token_refresher :: (Config.t() -> {:ok, Config.t()} | {:error, term()})
+
   @doc """
   Refreshes the legacy API Key `access_token`.
 
@@ -94,10 +107,33 @@ defmodule Longbridge.HTTPClient do
   - `:http_url` — Override the HTTP base URL.
   - `:params` — URL query string to append to the path (e.g. `"a=1&b=2"`).
   - `:finch` — Override the Finch instance (default `Longbridge.Finch`).
+  - `:token_refresher` — A `(Config.t() -> {:ok, Config.t()} | {:error, term()})`
+    function called once if the request returns a token-expired error.
+    On success, the request is retried once with the new token.
+  - `:on_token_refresh` — A `(Config.t() -> any())` function called
+    after a successful token refresh, with the new config. Useful
+    for updating a parent GenServer's state.
+
+  ## Token refresh retry
+
+  When a `:token_refresher` is provided and the server responds with
+  a token-expired error, the refresher is called and the request is
+  retried exactly once with the new token. If the refresher fails or
+  the retry also fails, the original error is returned.
   """
   @spec request(atom(), String.t(), String.t(), Config.t(), keyword()) ::
           {:ok, term()} | {:error, term()}
   def request(method, path, body, %Config{} = config, opts \\ []) do
+    case send_signed(method, path, body, config, opts) do
+      {:error, :token_expired} = err ->
+        retry_with_refresh(method, path, body, config, opts, err)
+
+      other ->
+        other
+    end
+  end
+
+  defp send_signed(method, path, body, %Config{} = config, opts) do
     http_url = Keyword.get(opts, :http_url, config.http_url)
     raw_query = Keyword.get(opts, :params, "")
     ts = unix_timestamp()
@@ -132,7 +168,44 @@ defmodule Longbridge.HTTPClient do
         {"x-api-signature", signature_header}
       ] ++ (config.headers || [])
 
-    do_request(method, http_url, path_with_query, request_headers, body, opts)
+    do_signed_request(method, http_url, path_with_query, request_headers, body, opts)
+  end
+
+  defp do_signed_request(method, http_url, path_with_query, headers, body, opts) do
+    case do_request(method, http_url, path_with_query, headers, body, opts) do
+      {:error, {:http_status, 401, _body}} = err ->
+        if Keyword.has_key?(opts, :token_refresher),
+          do: {:error, :token_expired},
+          else: err
+
+      other ->
+        other
+    end
+  end
+
+  defp retry_with_refresh(method, path, body, config, opts, original_err) do
+    refresher = Keyword.get(opts, :token_refresher)
+
+    if is_function(refresher, 1) do
+      case refresher.(config) do
+        {:ok, new_config} ->
+          if callback = Keyword.get(opts, :on_token_refresh),
+            do: callback.(new_config)
+
+          case send_signed(method, path, body, new_config, opts) do
+            {:error, :token_expired} ->
+              original_err
+
+            result ->
+              result
+          end
+
+        {:error, _reason} ->
+          original_err
+      end
+    else
+      original_err
+    end
   end
 
   @doc false

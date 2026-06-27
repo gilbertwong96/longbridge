@@ -363,6 +363,7 @@ defmodule Longbridge.TradeContext do
     # never let the WS rotation poison HTTP signing.
     {:ok, ws_config} = Config.with_socket_token(config)
     http_config = config
+    finch = Keyword.get(opts, :finch)
 
     if Keyword.get(opts, :skip_connection, false) do
       {:ok,
@@ -370,6 +371,7 @@ defmodule Longbridge.TradeContext do
          conn: nil,
          ws_config: ws_config,
          http_config: http_config,
+         finch: finch,
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -383,6 +385,7 @@ defmodule Longbridge.TradeContext do
          conn: conn,
          ws_config: ws_config,
          http_config: http_config,
+         finch: finch,
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -413,30 +416,59 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def handle_call({:http_get, path, params}, _from, state) do
-    result =
-      HTTPClient.request(:get, path, "", state.http_config, params: build_query(params))
-
+    {result, state} = signed_http_call(:get, path, "", state, params: build_query(params))
     {:reply, unwrap_http(result), state}
   end
 
   @impl true
   def handle_call({:http_post, path, body}, _from, state) do
-    result = HTTPClient.request(:post, path, body, state.http_config)
+    {result, state} = signed_http_call(:post, path, body, state)
     {:reply, unwrap_http(result), state}
   end
 
   @impl true
   def handle_call({:http_put, path, body}, _from, state) do
-    result = HTTPClient.request(:put, path, body, state.http_config)
+    {result, state} = signed_http_call(:put, path, body, state)
     {:reply, unwrap_http(result), state}
   end
 
   @impl true
   def handle_call({:http_delete, path, params}, _from, state) do
-    result =
-      HTTPClient.request(:delete, path, "", state.http_config, params: build_query(params))
-
+    {result, state} = signed_http_call(:delete, path, "", state, params: build_query(params))
     {:reply, unwrap_http(result), state}
+  end
+
+  # Performs an HTTP request, automatically retrying once on a 401
+  # (token-expired) response by calling Config.refresh_access_token/2
+  # and persisting the refreshed token into `state.http_config`.
+  defp signed_http_call(method, path, body, state, extra_opts \\ []) do
+    opts =
+      case state.finch do
+        nil -> extra_opts
+        finch -> Keyword.put(extra_opts, :finch, finch)
+      end
+
+    result = HTTPClient.request(method, path, body, state.http_config, opts)
+
+    case result do
+      {:error, {:http_status, 401, _body}} ->
+        retry_after_refresh(method, path, body, state, opts, result)
+
+      _ ->
+        {result, state}
+    end
+  end
+
+  defp retry_after_refresh(method, path, body, state, opts, original_err) do
+    case Config.refresh_access_token(state.http_config) do
+      {:ok, new_config} ->
+        state = %{state | http_config: new_config}
+        retry_result = HTTPClient.request(method, path, body, new_config, opts)
+        {retry_result, state}
+
+      {:error, _refresh_err} ->
+        {original_err, state}
+    end
   end
 
   @impl true
