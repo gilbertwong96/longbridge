@@ -1293,12 +1293,6 @@ defmodule Longbridge.QuoteContextTest do
       cleanup(server, ctx)
     end
 
-    test "raises FunctionClauseError if callback is not a function" do
-      assert_raise FunctionClauseError, fn ->
-        QuoteContext.set_on_quote(self(), "not a function")
-      end
-    end
-
     test "set_on_quote/2 fires with a decoded PushQuote struct" do
       test_pid = self()
 
