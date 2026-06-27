@@ -80,6 +80,59 @@ defmodule Longbridge.WSConnection.RateLimitTest do
       assert RateLimit.wait_ms(27) == 0
       assert RateLimit.wait_ms(11) == 0
     end
+
+    test "maps every Longbridge.Quote.V1.Command atom to its cmd_code" do
+      # Exhaustive table of all 24 known quote command atoms and their
+      # wire-format cmd_code. Mirrors the `Command` enum in
+      # openapi-protobufs/quote/api.proto. Each entry must produce a
+      # configured bucket (wait_ms == 0) after a single set_limits
+      # call, confirming the private cmd_to_code/1 clause works.
+      mappings = [
+        {4, :QueryUserQuoteProfile},
+        {5, :Subscription},
+        {6, :Subscribe},
+        {7, :Unsubscribe},
+        {8, :QueryMarketTradePeriod},
+        {9, :QueryMarketTradeDay},
+        {10, :QuerySecurityStaticInfo},
+        {11, :QuerySecurityQuote},
+        {12, :QueryOptionQuote},
+        {13, :QueryWarrantQuote},
+        {14, :QueryDepth},
+        {15, :QueryBrokers},
+        {16, :QueryParticipantBrokerIds},
+        {17, :QueryTrade},
+        {18, :QueryIntraday},
+        {19, :QueryCandlestick},
+        {20, :QueryOptionChainDate},
+        {21, :QueryOptionChainDateStrikeInfo},
+        {22, :QueryWarrantIssuerInfo},
+        {23, :QueryWarrantFilterList},
+        {24, :QueryCapitalFlowIntraday},
+        {25, :QueryCapitalFlowDistribution},
+        {26, :QuerySecurityCalcIndex},
+        {27, :QueryHistoryCandlestick}
+      ]
+
+      for {cmd_code, command} <- mappings do
+        RateLimit.set_limits([%{command: command, limit: 10, burst: 5}])
+        # First request has a token; wait_ms must be 0.
+        assert RateLimit.wait_ms(cmd_code) == 0,
+               "expected wait_ms(#{cmd_code}) to be 0 for #{inspect(command)}"
+
+        # Different cmd_code with no configured limit returns :infinity.
+        assert RateLimit.wait_ms(cmd_code + 100) == :infinity
+      end
+    end
+
+    test "passes through integer commands unchanged (cmd_to_code catch-all)" do
+      # The catch-all `defp cmd_to_code(other) when is_integer(other)`
+      # lets callers pass an already-integer cmd_code through set_limits
+      # without going through the atom-to-integer mapping. Useful for
+      # code that already has a numeric cmd_code.
+      RateLimit.set_limits([%{command: 42, limit: 10, burst: 1}])
+      assert RateLimit.wait_ms(42) == 0
+    end
   end
 
   describe "wait_ms/1" do

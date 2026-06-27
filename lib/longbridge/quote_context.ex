@@ -361,25 +361,27 @@ defmodule Longbridge.QuoteContext do
     req = %Q.UserQuoteProfileRequest{language: language}
     body = req |> Protox.encode() |> elem(1) |> IO.iodata_to_binary()
 
-    case WSConnection.request(conn, @cmd_user_quote_profile, body) do
-      {:ok, resp_bytes, _req_id} ->
-        case Protox.decode(resp_bytes, Q.UserQuoteProfileResponse) do
-          {:ok, %{rate_limit: entries}} when is_list(entries) ->
-            if entries == [] do
+    try do
+      case WSConnection.request(conn, @cmd_user_quote_profile, body) do
+        {:ok, resp_bytes, _req_id} ->
+          case Protox.decode(resp_bytes, Q.UserQuoteProfileResponse) do
+            {:ok, %{rate_limit: entries}} when is_list(entries) ->
+              if entries == [] do
+                :ok
+              else
+                WSConnection.apply_rate_limits(conn, entries)
+              end
+
+            _ ->
               :ok
-            else
-              WSConnection.apply_rate_limits(conn, entries)
-            end
+          end
 
-          _ ->
-            :ok
-        end
-
-      _ ->
-        :ok
+        _ ->
+          :ok
+      end
+    catch
+      _kind, _value -> :ok
     end
-  rescue
-    _ -> :ok
   end
 
   @impl true
