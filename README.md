@@ -308,6 +308,9 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `dividends/2` | Dividend history |
 | `valuation/2` | PE, PB, PS metrics |
 | `shareholders/2` | Shareholder distribution |
+| `etf_asset_allocation/2` | ETF asset allocation (holdings, regional, asset class, industry) |
+| `macroeconomic_indicators/2` | List macroeconomic indicators for a country |
+| `macroeconomic/3` | Historical data for a specific macroeconomic indicator |
 
 ### `Longbridge.CalendarContext` (HTTP)
 
