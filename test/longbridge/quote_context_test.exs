@@ -254,6 +254,22 @@ defmodule Longbridge.QuoteContextTest do
     end
   end
 
+  # Handler used by push callback registration tests. Returns
+  # empty bodies for any cmd code so the QuoteContext's init/1
+  # auto-fired user_quote_profile request completes without
+  # timeouts.
+  defp push_test_handler do
+    fn client, _test_pid, cmd_code, req_id, _body ->
+      empty_resp =
+        case cmd_code do
+          4 -> encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+          _ -> <<>>
+        end
+
+      :gen_tcp.send(client, ws_encode_binary(build_response(cmd_code, req_id, empty_resp)))
+    end
+  end
+
   defp inspect_handler(resp_msg, decode_mod) do
     fn client, test_pid, cmd_code, req_id, body ->
       # Skip the auto-fired user_quote_profile call (cmd 4) that the
@@ -1198,6 +1214,155 @@ defmodule Longbridge.QuoteContextTest do
 
       assert {:ok, _} = QuoteContext.quote(ctx, ["AAPL.US"])
       assert Process.alive?(ctx)
+      cleanup(server, ctx)
+    end
+  end
+
+  describe "push callback registration" do
+    test "set_on_quote/2 returns :ok" do
+      {:ok, server} =
+        start_server("sess-onquote#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      assert :ok = QuoteContext.set_on_quote(ctx, fn _ -> :ok end)
+      cleanup(server, ctx)
+    end
+
+    test "set_on_depth/2 returns :ok" do
+      {:ok, server} =
+        start_server("sess-ondepth#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      assert :ok = QuoteContext.set_on_depth(ctx, fn _ -> :ok end)
+      cleanup(server, ctx)
+    end
+
+    test "set_on_brokers/2 returns :ok" do
+      {:ok, server} =
+        start_server("sess-onbrokers#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      assert :ok = QuoteContext.set_on_brokers(ctx, fn _ -> :ok end)
+      cleanup(server, ctx)
+    end
+
+    test "set_on_trades/2 returns :ok and on_trade/2 is an alias" do
+      {:ok, server} =
+        start_server("sess-ontrade#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      assert :ok = QuoteContext.set_on_trades(ctx, fn _ -> :ok end)
+      assert :ok = QuoteContext.on_trade(ctx, fn _ -> :ok end)
+      cleanup(server, ctx)
+    end
+
+    test "set_default_push_callback/2 returns :ok" do
+      {:ok, server} =
+        start_server("sess-ondefault#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      assert :ok = QuoteContext.set_default_push_callback(ctx, fn _ -> :ok end)
+      cleanup(server, ctx)
+    end
+
+    test "remove_push_callback/2 returns :ok" do
+      {:ok, server} =
+        start_server("sess-onremove#{System.unique_integer([:positive])}", push_test_handler())
+
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      :ok = QuoteContext.set_on_quote(ctx, fn _ -> :ok end)
+      assert :ok = QuoteContext.remove_push_callback(ctx, :quote)
+      cleanup(server, ctx)
+    end
+
+    test "raises FunctionClauseError if callback is not a function" do
+      assert_raise FunctionClauseError, fn ->
+        QuoteContext.set_on_quote(self(), "not a function")
+      end
+    end
+
+    test "set_on_quote/2 fires with a decoded PushQuote struct" do
+      test_pid = self()
+
+      push_quote = %Q.PushQuote{
+        symbol: "AAPL.US",
+        sequence: 1,
+        last_done: "150.00",
+        timestamp: 1_700_000_000
+      }
+
+      push_body = encode_msg(push_quote)
+
+      sid = "sess-pushquote#{System.unique_integer([:positive])}"
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        :gen_tcp.send(client, ws_encode_binary(build_push(101, push_body)))
+
+        cond do
+          cmd_code == 4 ->
+            :gen_tcp.send(
+              client,
+              ws_encode_binary(
+                build_response(
+                  cmd_code,
+                  req_id,
+                  encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+                )
+              )
+            )
+
+          cmd_code == 11 ->
+            :gen_tcp.send(
+              client,
+              ws_encode_binary(
+                build_response(
+                  cmd_code,
+                  req_id,
+                  encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+                )
+              )
+            )
+
+          true ->
+            :ok
+        end
+      end
+
+      {:ok, server} = start_server(sid, handler)
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+
+      :ok =
+        QuoteContext.set_on_quote(ctx, fn push ->
+          send(test_pid, {:callback, push})
+        end)
+
+      # Trigger cmd 11 to fire the push.
+      QuoteContext.quote(ctx, ["AAPL.US"])
+
+      assert_receive {:callback, decoded}, 5_000
+      assert decoded.symbol == "AAPL.US"
+      assert decoded.last_done == "150.00"
+
       cleanup(server, ctx)
     end
   end

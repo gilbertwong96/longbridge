@@ -24,6 +24,14 @@ defmodule Longbridge.QuoteContext do
           quote = Protox.decode!(body, Longbridge.Quote.V1.PushQuote)
           IO.inspect(quote)
       end
+
+  Push messages can also be dispatched to typed callbacks via
+  `set_on_quote/2`, `set_on_depth/2`, `set_on_brokers/2`, and
+  `set_on_trades/2`, or to a single default handler via
+  `set_default_push_callback/2`. Callbacks fire in addition to
+  mailbox delivery — the underlying `{:longbridge_push, msg}`
+  message is still sent to the calling process when it has
+  subscribed via `Longbridge.WSConnection.subscribe_push/2`.
   """
 
   use GenServer
@@ -64,6 +72,19 @@ defmodule Longbridge.QuoteContext do
     DEPTH: 2,
     BROKERS: 3,
     TRADE: 4
+  }
+
+  # Wire-format push command codes from the upstream QuoteContext.
+  @push_cmd_quote 101
+  @push_cmd_depth 102
+  @push_cmd_brokers 103
+  @push_cmd_trade 104
+
+  @push_cmd_to_topic %{
+    @push_cmd_quote => :quote,
+    @push_cmd_depth => :depth,
+    @push_cmd_brokers => :brokers,
+    @push_cmd_trade => :trade
   }
 
   # ── Client API ───────────────────────────────────────────
@@ -440,6 +461,81 @@ defmodule Longbridge.QuoteContext do
     end
   end
 
+  @doc """
+  Sets a callback invoked on each `PushQuote` push event.
+
+  The callback receives a `Longbridge.Quote.V1.PushQuote` struct.
+  Set this **before** `subscribe/4` so you don't miss events.
+  Replaces any callback previously set for the `:quote` topic.
+
+  Mirrors `QuoteContext::on_quote` from `longbridge/openapi-go`.
+  """
+  @spec set_on_quote(pid(), (map() -> any())) :: :ok
+  def set_on_quote(pid, callback) when is_function(callback, 1) do
+    put_push_callback(pid, :quote, callback)
+  end
+
+  @doc """
+  Sets a callback invoked on each `PushDepth` push event.
+
+  The callback receives a `Longbridge.Quote.V1.PushDepth` struct.
+  """
+  @spec set_on_depth(pid(), (map() -> any())) :: :ok
+  def set_on_depth(pid, callback) when is_function(callback, 1) do
+    put_push_callback(pid, :depth, callback)
+  end
+
+  @doc """
+  Sets a callback invoked on each `PushBrokers` push event.
+
+  The callback receives a `Longbridge.Quote.V1.PushBrokers` struct.
+  """
+  @spec set_on_brokers(pid(), (map() -> any())) :: :ok
+  def set_on_brokers(pid, callback) when is_function(callback, 1) do
+    put_push_callback(pid, :brokers, callback)
+  end
+
+  @doc """
+  Sets a callback invoked on each `PushTrade` push event.
+
+  The callback receives a `Longbridge.Quote.V1.PushTrade` struct.
+  """
+  @spec set_on_trades(pid(), (map() -> any())) :: :ok
+  def set_on_trades(pid, callback) when is_function(callback, 1) do
+    put_push_callback(pid, :trade, callback)
+  end
+
+  @doc "Alias for `set_on_trades/2` (matches upstream `OnTrade`)."
+  @spec on_trade(pid(), (map() -> any())) :: :ok
+  def on_trade(pid, callback), do: set_on_trades(pid, callback)
+
+  @doc """
+  Sets a callback for an arbitrary push topic.
+
+  Use the predefined `set_on_quote/2`, `set_on_depth/2`,
+  `set_on_brokers/2`, `set_on_trades/2` wrappers for the
+  standard topics. Pass a custom string for niche cases.
+  """
+  @spec put_push_callback(pid(), atom() | String.t(), (map() -> any())) :: :ok
+  def put_push_callback(pid, topic, callback) when is_function(callback, 1) do
+    GenServer.cast(pid, {:put_push_callback, topic, callback})
+  end
+
+  @doc "Removes the callback for a push topic."
+  @spec remove_push_callback(pid(), atom() | String.t()) :: :ok
+  def remove_push_callback(pid, topic) do
+    GenServer.cast(pid, {:remove_push_callback, topic})
+  end
+
+  @doc """
+  Sets a fallback callback invoked for any push topic without a
+  registered handler.
+  """
+  @spec set_default_push_callback(pid(), (map() -> any())) :: :ok
+  def set_default_push_callback(pid, callback) when is_function(callback, 1) do
+    GenServer.cast(pid, {:set_default_push_callback, callback})
+  end
+
   # ── GenServer Callbacks ──────────────────────────────────
 
   @impl true
@@ -457,7 +553,13 @@ defmodule Longbridge.QuoteContext do
 
       schedule_heartbeat(config.heartbeat_interval)
 
-      {:ok, %{conn: conn, config: config}}
+      {:ok,
+       %{
+         conn: conn,
+         config: config,
+         push_callbacks: %{},
+         default_push_callback: nil
+       }}
     end
   end
 
@@ -514,11 +616,12 @@ defmodule Longbridge.QuoteContext do
   @impl true
   def handle_info({:longbridge, conn, msg}, %{conn: conn} = state) do
     send(self(), {:longbridge_push, msg})
-    {:noreply, state}
+    {:noreply, state, {:continue, {:process_push, msg}}}
   end
 
   # Forward push messages to the calling process. The caller should use
-  # `receive` to handle `{:longbridge_push, msg}`.
+  # `receive` to handle `{:longbridge_push, msg}`. We also dispatch the
+  # message to any callbacks registered via `set_on_quote/2` etc.
   @impl true
   def handle_info({:longbridge_push, _msg}, state) do
     {:noreply, state}
@@ -529,6 +632,63 @@ defmodule Longbridge.QuoteContext do
     apply_rate_limits(state.conn)
     {:noreply, state}
   end
+
+  @impl true
+  def handle_continue({:process_push, msg}, state) do
+    dispatch_push(msg, state.push_callbacks, state.default_push_callback)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:put_push_callback, topic, callback}, state) do
+    {:noreply, %{state | push_callbacks: Map.put(state.push_callbacks, topic, callback)}}
+  end
+
+  @impl true
+  def handle_cast({:remove_push_callback, topic}, state) do
+    {:noreply, %{state | push_callbacks: Map.delete(state.push_callbacks, topic)}}
+  end
+
+  @impl true
+  def handle_cast({:set_default_push_callback, callback}, state) do
+    {:noreply, %{state | default_push_callback: callback}}
+  end
+
+  # ── Push event dispatch ───────────────────────────────
+
+  defp dispatch_push({:push, cmd_code, body}, callbacks, default_callback) do
+    topic = Map.get(@push_cmd_to_topic, cmd_code)
+    callback = topic && Map.get(callbacks, topic)
+
+    cond do
+      is_function(callback, 1) ->
+        callback.(decode_push(cmd_code, body))
+
+      is_function(default_callback, 1) ->
+        default_callback.(decode_push(cmd_code, body))
+
+      true ->
+        # No callbacks registered — the message is dropped here but
+        # still reachable via Longbridge.WSConnection.subscribe_push/2.
+        :ok
+    end
+  end
+
+  defp dispatch_push(_other, _callbacks, _default), do: :ok
+
+  defp decode_push(@push_cmd_quote, body),
+    do: Protox.decode!(body, Q.PushQuote)
+
+  defp decode_push(@push_cmd_depth, body),
+    do: Protox.decode!(body, Q.PushDepth)
+
+  defp decode_push(@push_cmd_brokers, body),
+    do: Protox.decode!(body, Q.PushBrokers)
+
+  defp decode_push(@push_cmd_trade, body),
+    do: Protox.decode!(body, Q.PushTrade)
+
+  defp decode_push(_cmd_code, body), do: body
 
   # ── Helpers ──────────────────────────────────────────────
 
