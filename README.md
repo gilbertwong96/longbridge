@@ -66,6 +66,23 @@ end
 | `trade_host` / `trade_port` | `openapi-trade.longbridge.{com,cn}`:2020 | Same. |
 | `transport` | `:tcp` | `:websocket` is reserved for a future WebSocket transport. |
 
+To inject custom HTTP/WS request headers (e.g. `X-Forwarded-For`,
+custom auth, tenant routing), pass `:headers` as a list of
+`{name, value}` tuples. Mirrors `Config::header(key, value)` from
+the Rust SDK (4.0.6).
+
+```elixir
+config = Longbridge.Config.new(
+  token: "...",
+  app_key: "...",
+  app_secret: "...",
+  headers: [{"X-Forwarded-For", "1.2.3.4"}, {"X-Tenant", "acme"}]
+)
+```
+
+The headers are appended to every signed HTTP request and to the
+WebSocket upgrade request.
+
 ## Refreshing the access token (legacy API key)
 
 The legacy API Key `access_token` expires after 90 days. To obtain a
@@ -433,6 +450,9 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `option_volume_daily/4` | Daily option volume for a symbol within a date range |
 | `update_pinned/4` | Pin or unpin a security to the top of a watchlist group |
 | `security_list/2` | List securities available for a market (market, category, page, count) |
+| `market_temperature/2` | Current market temperature (0-100) for a market |
+| `history_market_temperature/4` | Historical market temperature within a YYYY-MM-DD date range |
+| `short_trades/3` | Recent short-selling trades (`.HK` → `/hk`, others → `/us`; count, last_timestamp) |
 
 ### Push command codes (consumer-side)
 
