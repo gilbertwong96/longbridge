@@ -66,6 +66,7 @@ defmodule Longbridge.QuoteContext do
   @cmd_capital_flow_distribution 25
   @cmd_security_calc_index 26
   @cmd_history_candlestick 27
+  @cmd_warrant_filter_list 23
 
   @sub_type_map %{
     QUOTE: 1,
@@ -73,6 +74,9 @@ defmodule Longbridge.QuoteContext do
     BROKERS: 3,
     TRADE: 4
   }
+
+  @type trade_session ::
+          :NORMAL_TRADE | :PRE_TRADE | :POST_TRADE | :OVERNIGHT_TRADE | non_neg_integer()
 
   # Wire-format push command codes from the upstream QuoteContext.
   @push_cmd_quote 101
@@ -190,10 +194,25 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_trade, req, Q.SecurityTradeResponse)
   end
 
-  @doc "Queries intraday lines for a security."
-  @spec intraday(pid(), String.t(), non_neg_integer()) :: {:ok, struct()} | {:error, term()}
-  def intraday(pid, symbol, trade_session \\ 0) do
-    req = %Q.SecurityIntradayRequest{symbol: symbol, trade_session: trade_session}
+  @doc """
+  Queries intraday lines for a security.
+
+  `trade_session` is one of:
+    * `:NORMAL_TRADE` (default) — regular trading session only.
+    * `:PRE_TRADE` — pre-market quotes only.
+    * `:POST_TRADE` — post-market quotes only.
+    * `:OVERNIGHT_TRADE` — overnight session quotes only.
+
+  Or pass an integer (0-3) directly.
+  """
+  @spec intraday(pid(), String.t(), trade_session()) ::
+          {:ok, struct()} | {:error, term()}
+  def intraday(pid, symbol, trade_session \\ :NORMAL_TRADE) do
+    req = %Q.SecurityIntradayRequest{
+      symbol: symbol,
+      trade_session: trade_session_code(trade_session)
+    }
+
     request(pid, @cmd_intraday, req, Q.SecurityIntradayResponse)
   end
 
@@ -209,7 +228,7 @@ defmodule Longbridge.QuoteContext do
           atom(),
           non_neg_integer(),
           non_neg_integer(),
-          non_neg_integer()
+          trade_session()
         ) ::
           {:ok, struct()} | {:error, term()}
   def candlesticks(
@@ -218,7 +237,7 @@ defmodule Longbridge.QuoteContext do
         period \\ :DAY,
         count \\ 100,
         adjust_type \\ 0,
-        trade_session \\ 0
+        trade_session \\ :NORMAL_TRADE
       ) do
     period_val = period_code(period)
 
@@ -227,7 +246,7 @@ defmodule Longbridge.QuoteContext do
       period: period_val,
       count: count,
       adjust_type: adjust_type,
-      trade_session: trade_session
+      trade_session: trade_session_code(trade_session)
     }
 
     request(pid, @cmd_candlestick, req, Q.SecurityCandlestickResponse)
@@ -290,7 +309,7 @@ defmodule Longbridge.QuoteContext do
       adjust_type: adjust_type,
       query_type: 1,
       offset_request: offset_query,
-      trade_session: Keyword.get(opts, :trade_session, 0)
+      trade_session: trade_session_code(Keyword.get(opts, :trade_session, :NORMAL_TRADE))
     }
 
     request(pid, @cmd_history_candlestick, req, Q.SecurityCandlestickResponse)
@@ -334,7 +353,7 @@ defmodule Longbridge.QuoteContext do
       adjust_type: adjust_type,
       query_type: 2,
       date_request: date_query,
-      trade_session: Keyword.get(opts, :trade_session, 0)
+      trade_session: trade_session_code(Keyword.get(opts, :trade_session, :NORMAL_TRADE))
     }
 
     request(pid, @cmd_history_candlestick, req, Q.SecurityCandlestickResponse)
@@ -359,6 +378,60 @@ defmodule Longbridge.QuoteContext do
   @spec warrant_issuer_info(pid()) :: {:ok, struct()} | {:error, term()}
   def warrant_issuer_info(pid) do
     request_empty(pid, @cmd_warrant_issuer_info, Q.IssuerInfoResponse)
+  end
+
+  @doc """
+  Filters HK warrants for a given underlying symbol.
+
+  Endpoint: cmd_code 23 (`QueryWarrantFilterList`).
+
+  ## Required options
+
+    * `:symbol` — the underlying symbol (e.g. `"700.HK"`).
+    * `:language` — `0` (Simplified Chinese), `1` (English), `2`
+      (Traditional Chinese).
+
+  ## Optional filters
+
+    * `:sort_by` — `:last_done | :change_rate | :change_value | :volume |
+      :turnover | :outstanding_qty | :leverage_ratio | :implied_volatility
+      | :status` (default: `:last_done`).
+    * `:sort_order` — `:desc | :asc` (default: `:desc`).
+    * `:sort_offset` — non_neg_integer pagination offset (default 0).
+    * `:sort_count` — non_neg_integer page size (default 50).
+    * `:type` — `:call | :put` (or `0 | 1`).
+    * `:expiry_date` — `:lt_3 | :between_3_6 | :between_6_12 | :gt_12`
+      (or `1 | 2 | 3 | 4`).
+    * `:status` — `:suspend | :prepare_list | :normal` (or `2 | 3 | 4`).
+    * `:price_type` — `:in_bounds | :out_bounds` (or `1 | 2`).
+    * `:issuer` — list of issuer ids from `warrant_issuer_info/1`.
+
+  Mirrors `WarrantList` from `longbridge/openapi-go`.
+  """
+  @spec warrant_list(pid(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def warrant_list(pid, opts) do
+    symbol = Keyword.fetch!(opts, :symbol)
+    language = Keyword.fetch!(opts, :language)
+
+    filter_config = %Q.FilterConfig{
+      sort_by: warrant_sort_by_code(Keyword.get(opts, :sort_by, :last_done)),
+      sort_order: warrant_sort_order_code(Keyword.get(opts, :sort_order, :desc)),
+      sort_offset: Keyword.get(opts, :sort_offset, 0),
+      sort_count: Keyword.get(opts, :sort_count, 50),
+      type: encode_int_list(Keyword.get(opts, :type, []), &warrant_type_code/1),
+      issuer: encode_int_list(Keyword.get(opts, :issuer, []), & &1),
+      expiry_date: encode_int_list(Keyword.get(opts, :expiry_date, []), &warrant_expiry_code/1),
+      price_type: encode_int_list(Keyword.get(opts, :price_type, []), &warrant_price_type_code/1),
+      status: encode_int_list(Keyword.get(opts, :status, []), &warrant_status_code/1)
+    }
+
+    req = %Q.WarrantFilterListRequest{
+      symbol: symbol,
+      filter_config: filter_config,
+      language: language
+    }
+
+    request(pid, @cmd_warrant_filter_list, req, Q.WarrantFilterListResponse)
   end
 
   @doc "Queries market trade period information."
@@ -747,6 +820,61 @@ defmodule Longbridge.QuoteContext do
   defp period_code(:QUARTER), do: 3500
   defp period_code(:YEAR), do: 4000
   defp period_code(other) when is_integer(other), do: other
+
+  defp trade_session_code(:NORMAL_TRADE), do: 0
+  defp trade_session_code(:PRE_TRADE), do: 1
+  defp trade_session_code(:POST_TRADE), do: 2
+  defp trade_session_code(:OVERNIGHT_TRADE), do: 3
+  defp trade_session_code(other) when is_integer(other), do: other
+
+  # ── Warrant filter encoders ─────────────────────────
+
+  defp warrant_sort_by_code(:last_done), do: 0
+  defp warrant_sort_by_code(:change_rate), do: 1
+  defp warrant_sort_by_code(:change_value), do: 2
+  defp warrant_sort_by_code(:volume), do: 3
+  defp warrant_sort_by_code(:turnover), do: 4
+  defp warrant_sort_by_code(:outstanding_qty), do: 5
+  defp warrant_sort_by_code(:leverage_ratio), do: 6
+  defp warrant_sort_by_code(:implied_volatility), do: 7
+  defp warrant_sort_by_code(:status), do: 8
+  defp warrant_sort_by_code(other) when is_integer(other), do: other
+
+  defp warrant_sort_order_code(:desc), do: 0
+  defp warrant_sort_order_code(:asc), do: 1
+  defp warrant_sort_order_code(other) when is_integer(other), do: other
+
+  defp warrant_type_code(:call), do: 0
+  defp warrant_type_code(:put), do: 1
+  defp warrant_type_code(other) when is_integer(other), do: other
+
+  defp warrant_expiry_code(:lt_3), do: 1
+  defp warrant_expiry_code(:between_3_6), do: 2
+  defp warrant_expiry_code(:between_6_12), do: 3
+  defp warrant_expiry_code(:gt_12), do: 4
+  defp warrant_expiry_code(other) when is_integer(other), do: other
+
+  defp warrant_price_type_code(:in_bounds), do: 1
+  defp warrant_price_type_code(:out_bounds), do: 2
+  defp warrant_price_type_code(other) when is_integer(other), do: other
+
+  defp warrant_status_code(:suspend), do: 2
+  defp warrant_status_code(:prepare_list), do: 3
+  defp warrant_status_code(:normal), do: 4
+  defp warrant_status_code(other) when is_integer(other), do: other
+
+  # Apply encoder `f` to every element of a list, dropping nils and
+  # integers that come from already-encoded values. The proto expects
+  # `repeated int32` so we always return a list of integers.
+  defp encode_int_list(values, f) when is_list(values) do
+    Enum.flat_map(values, fn
+      nil -> []
+      v when is_integer(v) -> [v]
+      v -> [f.(v)]
+    end)
+  end
+
+  defp encode_int_list(value, f), do: encode_int_list([value], f)
 
   defp normalize_date(<<y::4-bytes, ?-, m::2-bytes, ?-, d::2-bytes>>) when is_binary(y) do
     y <> m <> d

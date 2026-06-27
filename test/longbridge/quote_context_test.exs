@@ -690,6 +690,95 @@ defmodule Longbridge.QuoteContextTest do
       cleanup(server, ctx)
     end
 
+    test "candlesticks/6 accepts typed trade_session atom" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-tsatom#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.candlesticks(ctx, "AAPL.US", :DAY, 50, 0, :POST_TRADE)
+
+      assert_receive {:req, req}
+      assert req.trade_session == 2
+
+      cleanup(server, ctx)
+    end
+
+    test "warrant_list/2 builds a filter request and decodes the response" do
+      resp = %Q.WarrantFilterListResponse{
+        warrant_list: [
+          %Q.FilterWarrant{
+            symbol: "21007.HK",
+            name: "HSI Bull Warrant",
+            last_done: "0.20",
+            change_rate: "0.05",
+            strike_price: "18000.00"
+          }
+        ],
+        total_count: 1
+      }
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-wfl#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.WarrantFilterListRequest)
+        )
+
+      assert {:ok, decoded} =
+               QuoteContext.warrant_list(ctx,
+                 symbol: "700.HK",
+                 language: 1,
+                 sort_by: :change_rate,
+                 type: :call,
+                 expiry_date: :between_3_6
+               )
+
+      assert_receive {:req, req}
+      assert req.symbol == "700.HK"
+      assert req.language == 1
+      assert req.filter_config.sort_by == 1
+      assert req.filter_config.type == [0]
+      assert req.filter_config.expiry_date == [2]
+
+      assert decoded.total_count == 1
+      assert hd(decoded.warrant_list).symbol == "21007.HK"
+      assert hd(decoded.warrant_list).strike_price == "18000.00"
+
+      cleanup(server, ctx)
+    end
+
+    test "warrant_list/2 accepts raw integer filter values" do
+      resp = %Q.WarrantFilterListResponse{warrant_list: [], total_count: 0}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-wfli#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.WarrantFilterListRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.warrant_list(ctx,
+                 symbol: "700.HK",
+                 language: 0,
+                 sort_by: 1,
+                 sort_order: 0,
+                 type: [0, 1],
+                 status: [4]
+               )
+
+      assert_receive {:req, req}
+      assert req.filter_config.sort_by == 1
+      assert req.filter_config.sort_order == 0
+      assert req.filter_config.type == [0, 1]
+      assert req.filter_config.status == [4]
+
+      cleanup(server, ctx)
+    end
+
     test "4-arg call falls back to default trade_session" do
       resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
 
