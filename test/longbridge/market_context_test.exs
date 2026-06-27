@@ -91,9 +91,7 @@ defmodule Longbridge.MarketContextTest do
         end)
 
       assert {:ok, _} =
-               MarketContext.broker_holdings(config_with(server.port), "700.HK",
-                 period: :rct_5
-               )
+               MarketContext.broker_holdings(config_with(server.port), "700.HK", period: :rct_5)
 
       stop_fake_http_server(server)
     end
@@ -178,9 +176,7 @@ defmodule Longbridge.MarketContextTest do
         end)
 
       assert {:ok, _} =
-               MarketContext.ah_premium(config_with(server.port), "700.HK",
-                 period: "custom"
-               )
+               MarketContext.ah_premium(config_with(server.port), "700.HK", period: "custom")
 
       stop_fake_http_server(server)
     end

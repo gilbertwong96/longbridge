@@ -76,7 +76,107 @@ defmodule Longbridge.OAuthTest do
 
   # ── Token response parsing ────────────────────────────
 
-  describe "parse_token_response/1" do
+  describe "parse_token_response/1 - extra cases" do
+    test "handles response with sub_accounts" do
+      data = %{
+        "access_token" => "t",
+        "refresh_token" => "r",
+        "expires_in" => 3600,
+        "sub_accounts" => ["a", "b"]
+      }
+
+      assert {:ok, token} = OAuth.parse_token_response(data)
+      assert token.sub_accounts == ["a", "b"]
+    end
+
+    test "handles response without refresh_token" do
+      data = %{
+        "access_token" => "t",
+        "expires_in" => 3600
+      }
+
+      assert {:ok, token} = OAuth.parse_token_response(data)
+      assert token.refresh_token == nil
+    end
+
+    test "handles response without expires_in" do
+      data = %{"access_token" => "t"}
+
+      assert {:ok, token} = OAuth.parse_token_response(data)
+      assert token.expires_at == nil
+    end
+
+    test "returns error for OAuth error response" do
+      data = %{"error" => "invalid_grant", "error_description" => "bad code"}
+
+      assert {:error, {:oauth_error, "invalid_grant", "bad code"}} =
+               OAuth.parse_token_response(data)
+    end
+
+    test "returns error for OAuth error without description" do
+      data = %{"error" => "invalid_client"}
+
+      assert {:error, {:oauth_error, "invalid_client", nil}} =
+               OAuth.parse_token_response(data)
+    end
+
+    test "returns :unexpected_response for malformed data" do
+      data = %{"other" => "x"}
+
+      assert {:error, {:unexpected_response, ^data}} = OAuth.parse_token_response(data)
+    end
+  end
+
+  describe "load_token - missing refresh_token" do
+    test "returns :refresh_failed/:no_refresh_token when refresh fails for missing refresh_token" do
+      :ok = InMemoryTokenStorage.reset()
+      on_exit(fn -> :ok = InMemoryTokenStorage.reset() end)
+
+      client_id = "no-refresh-load"
+      InMemoryTokenStorage.save(client_id, %{
+        access_token: "old",
+        refresh_token: nil,
+        expires_at: System.system_time(:second) - 60
+      })
+
+      assert {:error, {:refresh_failed, :no_refresh_token}} =
+               OAuth.load_token(client_id, storage: InMemoryTokenStorage)
+    end
+  end
+
+  describe "export_token - additional" do
+    test "includes the client_id in the exported map" do
+      :ok = InMemoryTokenStorage.reset()
+      on_exit(fn -> :ok = InMemoryTokenStorage.reset() end)
+
+      client_id = "export-test"
+      InMemoryTokenStorage.save(client_id, %{
+        access_token: "t",
+        refresh_token: "r",
+        expires_at: 1_900_000_000
+      })
+
+      assert {:ok, exported} = OAuth.export_token(client_id, storage: InMemoryTokenStorage)
+      assert exported.client_id == client_id
+      assert exported.access_token == "t"
+      assert exported.refresh_token == "r"
+    end
+  end
+
+  describe "authorize_url" do
+    test "builds URL with all required params" do
+      url = OAuth.authorize_url("client-id", "http://localhost/callback", "state-1", "challenge-1")
+
+      assert url =~ "client_id=client-id"
+      assert url =~ "response_type=code"
+      assert url =~ "state=state-1"
+      assert url =~ "code_challenge=challenge-1"
+      assert url =~ "code_challenge_method=S256"
+      assert url =~ "redirect_uri="
+    end
+  end
+
+  describe "load_token/1 + export_token/1" do
     test "parses a successful response with all fields" do
       data = %{
         "access_token" => "new-token",
@@ -147,7 +247,10 @@ defmodule Longbridge.OAuthTest do
       on_exit(fn -> stop_oauth_fake_http(server) end)
 
       assert {:ok, token} =
-               OAuth.exchange_code("client-id", "auth-code", "http://localhost/callback",
+               OAuth.exchange_code(
+                 "client-id",
+                 "auth-code",
+                 "http://localhost/callback",
                  "verifier",
                  http_url: "http://127.0.0.1:#{server.port}"
                )

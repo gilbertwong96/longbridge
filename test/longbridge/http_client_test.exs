@@ -255,7 +255,7 @@ defmodule Longbridge.HTTPClientTest do
 
   describe "token refresher retry" do
     test "returns the original 401 when no refresher is provided" do
-      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
         start_fake_http_server(fn _request ->
@@ -263,14 +263,14 @@ defmodule Longbridge.HTTPClientTest do
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
-      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+      config = %{base | http_url: "http://127.0.0.1:#{server.port}"}
 
       assert {:error, {:http_status, 401, _body}} =
                HTTPClient.request(:get, "/v1/test", "", config)
     end
 
     test "returns the original 401 when the refresher fails" do
-      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
         start_fake_http_server(fn _request ->
@@ -278,7 +278,7 @@ defmodule Longbridge.HTTPClientTest do
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
-      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+      config = %{base | http_url: "http://127.0.0.1:#{server.port}"}
 
       assert {:error, {:http_status, 401, _body}} =
                HTTPClient.request(:get, "/v1/test", "", config,
@@ -287,7 +287,7 @@ defmodule Longbridge.HTTPClientTest do
     end
 
     test "returns the original 401 when retry also returns 401" do
-      config = Config.new(token: "old-token", app_key: "k", app_secret: "s")
+      base = Config.new(token: "old-token", app_key: "k", app_secret: "s")
 
       server =
         start_fake_http_server(fn _request ->
@@ -295,7 +295,7 @@ defmodule Longbridge.HTTPClientTest do
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
-      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+      config = %{base | http_url: "http://127.0.0.1:#{server.port}"}
 
       assert {:error, {:http_status, 401, _body}} =
                HTTPClient.request(:get, "/v1/test", "", config,
@@ -304,7 +304,7 @@ defmodule Longbridge.HTTPClientTest do
     end
 
     test "ignores the refresher option when status is not 401" do
-      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+      base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
         start_fake_http_server(fn _request ->
@@ -312,7 +312,7 @@ defmodule Longbridge.HTTPClientTest do
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
-      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+      config = %{base | http_url: "http://127.0.0.1:#{server.port}"}
 
       called? = :counters.new(1, [])
 
