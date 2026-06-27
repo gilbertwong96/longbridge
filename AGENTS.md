@@ -27,6 +27,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.Protos` | `use Protox, files: protos/*.proto` — generates `Longbridge.{Control,Quote,Trade}.V1.*` structs. |
 | `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
 | `Longbridge.SharelistContext` | Community sharelist management. HTTP-only. |
+| `Longbridge.ScreenerContext` | Stock-screener strategies, indicator search, AI recommendations. HTTP-only. Mirrors `ScreenerContext` in `longbridge/openapi-go` and `longbridge/openapi`. |
 | `Longbridge.Symbol` | Symbol ↔ counter_id conversion (`to_counter_id/1`, `index_to_counter_id/1`, `from_counter_id/1`). Used by HTTP `MarketContext`. Vendored directory data lives in `priv/counter_ids/`. |
 | `Longbridge.TradeContext` | Public API for the trade endpoint — orders, positions, account, executions, push. |
 | `Longbridge.WSConnection` | WebSocket GenServer. Owns the socket, WS upgrade, auth, heartbeat, request/response pairing, push dispatch. |
