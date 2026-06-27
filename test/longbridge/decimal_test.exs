@@ -64,6 +64,24 @@ defmodule Longbridge.DecimalTest do
         end
       end
     end
+
+    test "raises ArgumentError when :decimal is not loaded" do
+      # Purge Decimal from memory to force the error path, then
+      # reload it so subsequent tests aren't affected.
+      original = Code.ensure_loaded?(Decimal)
+
+      try do
+        :code.purge(Decimal)
+        :code.delete(Decimal)
+        :code.purge(Decimal)
+
+        assert_raise ArgumentError,
+                     ~r/the :decimal package must be added as a dependency/,
+                     fn -> Decimal.to_bigdecimal("3.14") end
+      after
+        if original, do: :code.load_file(Decimal)
+      end
+    end
   end
 
   describe "sum_bigdecimal/1" do
@@ -75,6 +93,22 @@ defmodule Longbridge.DecimalTest do
         assert_raise ArgumentError, ~r/:decimal/, fn ->
           Decimal.sum_bigdecimal(["1.5", "2.5"])
         end
+      end
+    end
+
+    test "raises ArgumentError when :decimal is not loaded" do
+      original = Code.ensure_loaded?(Decimal)
+
+      try do
+        :code.purge(Decimal)
+        :code.delete(Decimal)
+        :code.purge(Decimal)
+
+        assert_raise ArgumentError,
+                     ~r/the :decimal package must be added as a dependency/,
+                     fn -> Decimal.sum_bigdecimal(["1.0"]) end
+      after
+        if original, do: :code.load_file(Decimal)
       end
     end
 

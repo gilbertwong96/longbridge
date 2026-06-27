@@ -51,6 +51,35 @@ receive do
 end
 ```
 
+### Trade example
+
+```elixir
+{:ok, trade_ctx} = Longbridge.TradeContext.start_link(config)
+
+# Submit an order (LO = limit order)
+{:ok, %{"order_id" => order_id}} =
+  Longbridge.TradeContext.submit_order(trade_ctx,
+    symbol: "AAPL.US",
+    side: :buy,
+    order_type: :lo,
+    submitted_quantity: "100",
+    time_in_force: :day,
+    submitted_price: "150.00"
+  )
+
+# Cancel an order
+:ok = Longbridge.TradeContext.cancel_order(trade_ctx, order_id)
+
+# Today's orders
+{:ok, %{"orders" => orders}} = Longbridge.TradeContext.today_orders(trade_ctx)
+
+# Subscribe to order-change push events
+:ok = Longbridge.TradeContext.subscribe(trade_ctx, [:private])
+:ok = Longbridge.TradeContext.set_on_order_changed(trade_ctx, fn event ->
+  IO.inspect(event, label: "order changed")
+end)
+```
+
 ## Configuration
 
 `Longbridge.Config` holds everything needed to open a connection:

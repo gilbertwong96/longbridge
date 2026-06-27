@@ -3,77 +3,20 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
 
   alias Longbridge.OAuth.FileTokenStorage
 
-  # Use a per-test sandbox so we don't write to the real ~/.longbridge.
-  # `token_path/1` reads from `System.user_home!/0`, which is fixed at
-  # boot and cannot be overridden via $HOME. Instead, we wrap the
-  # storage in a small in-test module that re-points `token_path/1`
-  # to a tempdir. Tests exercise both behaviours through that
-  # sandbox.
-
-  defmodule Sandbox do
-    @moduledoc false
-    @behaviour Longbridge.OAuth.TokenStorage
-
-    @tmpdir Path.join(
-              System.tmp_dir!(),
-              "longbridge_file_storage_test_#{System.unique_integer([:positive])}"
-            )
-
-    def tmpdir, do: @tmpdir
-
-    @impl true
-    def load(client_id) do
-      path = Path.join([@tmpdir, ".longbridge", "openapi", "tokens", client_id])
-
-      with {:ok, content} <- File.read(path),
-           {:ok, %{"access_token" => token} = data} <- Jason.decode(content) do
-        {:ok,
-         %{
-           access_token: token,
-           refresh_token: Map.get(data, "refresh_token"),
-           expires_at: Map.get(data, "expires_at"),
-           token_type: Map.get(data, "token_type", "Bearer"),
-           scope: Map.get(data, "scope"),
-           user_id: Map.get(data, "user_id"),
-           sub_accounts: Map.get(data, "sub_accounts"),
-           http_url: Map.get(data, "http_url")
-         }}
-      else
-        {:error, :enoent} -> {:error, :not_found}
-        {:error, _reason} -> {:error, :invalid_token_data}
-        {:ok, _} -> {:error, :invalid_token_data}
-      end
-    end
-
-    @impl true
-    def save(client_id, token) do
-      path = Path.join([@tmpdir, ".longbridge", "openapi", "tokens", client_id])
-      File.mkdir_p!(Path.dirname(path))
-
-      json =
-        Jason.encode!(%{
-          access_token: Map.get(token, :access_token),
-          refresh_token: Map.get(token, :refresh_token),
-          expires_at: Map.get(token, :expires_at),
-          token_type: Map.get(token, :token_type, "Bearer"),
-          scope: Map.get(token, :scope),
-          user_id: Map.get(token, :user_id),
-          sub_accounts: Map.get(token, :sub_accounts),
-          http_url: Map.get(token, :http_url)
-        })
-
-      File.write(path, json)
-    end
+  # Use unique client_ids per test so we can clean up without
+  # touching real ~/.longbridge tokens.
+  defp unique_client_id(prefix \\ "ftst") do
+    "#{prefix}_#{System.unique_integer([:positive])}"
   end
 
-  setup do
-    File.rm_rf!(Sandbox.tmpdir())
-    on_exit(fn -> File.rm_rf!(Sandbox.tmpdir()) end)
-    :ok
+  defp cleanup(client_id) do
+    File.rm(FileTokenStorage.token_path(client_id))
   end
 
   describe "save/2 + load/1 round-trip" do
     test "writes and reads a token" do
+      client_id = unique_client_id()
+
       token = %{
         access_token: "secret-token",
         refresh_token: "refresh-token",
@@ -85,9 +28,10 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
         http_url: "https://api.longbridge.com"
       }
 
-      :ok = Sandbox.save("client-1", token)
-      assert {:ok, loaded} = Sandbox.load("client-1")
+      :ok = FileTokenStorage.save(client_id, token)
+      on_exit(fn -> cleanup(client_id) end)
 
+      assert {:ok, loaded} = FileTokenStorage.load(client_id)
       assert loaded.access_token == "secret-token"
       assert loaded.refresh_token == "refresh-token"
       assert loaded.expires_at == 1_700_000_000
@@ -99,38 +43,98 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
     end
 
     test "writes JSON to the expected path" do
-      :ok = Sandbox.save("client-2", %{access_token: "t", expires_at: 1})
-      path = Path.join([Sandbox.tmpdir(), ".longbridge", "openapi", "tokens", "client-2"])
+      client_id = unique_client_id()
+      :ok = FileTokenStorage.save(client_id, %{access_token: "t", expires_at: 1})
+      on_exit(fn -> cleanup(client_id) end)
+
+      path = FileTokenStorage.token_path(client_id)
+      assert File.exists?(path)
+
       json = File.read!(path)
       assert {:ok, %{"access_token" => "t"}} = Jason.decode(json)
     end
 
     test "creates the parent directory if missing" do
-      :ok = Sandbox.save("client-3", %{access_token: "t"})
-      path = Path.join([Sandbox.tmpdir(), ".longbridge", "openapi", "tokens", "client-3"])
+      client_id = unique_client_id()
+      path = FileTokenStorage.token_path(client_id)
+      File.rm_rf!(path)
+
+      :ok = FileTokenStorage.save(client_id, %{access_token: "t"})
+      on_exit(fn -> cleanup(client_id) end)
+
       assert File.exists?(path)
+      assert File.dir?(Path.dirname(path))
+    end
+
+    test "overwrites an existing token" do
+      client_id = unique_client_id()
+      :ok = FileTokenStorage.save(client_id, %{access_token: "v1"})
+      :ok = FileTokenStorage.save(client_id, %{access_token: "v2"})
+      on_exit(fn -> cleanup(client_id) end)
+
+      assert {:ok, %{access_token: "v2"}} = FileTokenStorage.load(client_id)
+    end
+
+    test "writes token_type: Bearer by default when not provided" do
+      client_id = unique_client_id()
+      :ok = FileTokenStorage.save(client_id, %{access_token: "t"})
+      on_exit(fn -> cleanup(client_id) end)
+
+      assert {:ok, %{token_type: "Bearer"}} = FileTokenStorage.load(client_id)
     end
   end
 
   describe "load/1 error cases" do
     test "returns :not_found when the token file is missing" do
-      assert {:error, :not_found} = Sandbox.load("never-saved")
+      client_id = unique_client_id("never")
+      File.rm(FileTokenStorage.token_path(client_id))
+      assert {:error, :not_found} = FileTokenStorage.load(client_id)
     end
 
-    test "returns :invalid_token_data for malformed JSON" do
-      path = Path.join([Sandbox.tmpdir(), ".longbridge", "openapi", "tokens", "bad-json"])
+    test "returns the Jason.DecodeError for malformed JSON" do
+      client_id = unique_client_id("bad-json")
+      path = FileTokenStorage.token_path(client_id)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, "not json")
+      on_exit(fn -> cleanup(client_id) end)
 
-      assert {:error, :invalid_token_data} = Sandbox.load("bad-json")
+      assert {:error, %Jason.DecodeError{}} = FileTokenStorage.load(client_id)
     end
 
     test "returns :invalid_token_data when access_token is missing" do
-      path = Path.join([Sandbox.tmpdir(), ".longbridge", "openapi", "tokens", "no-at"])
+      client_id = unique_client_id("no-at")
+      path = FileTokenStorage.token_path(client_id)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, ~s({"refresh_token": "x"}))
+      on_exit(fn -> cleanup(client_id) end)
 
-      assert {:error, :invalid_token_data} = Sandbox.load("no-at")
+      assert {:error, :invalid_token_data} = FileTokenStorage.load(client_id)
+    end
+
+    test "loads a token with empty access_token as-is (downstream check)" do
+      client_id = unique_client_id("empty-at")
+      path = FileTokenStorage.token_path(client_id)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, ~s({"access_token": ""}))
+      on_exit(fn -> cleanup(client_id) end)
+
+      # The storage doesn't validate the access_token contents;
+      # an empty string is treated as a valid (but useless) token.
+      # Validation is the caller's responsibility.
+      assert {:ok, %{access_token: ""}} = FileTokenStorage.load(client_id)
+    end
+
+    test "returns {:error, reason} for IO read errors" do
+      # Simulate IO error by pointing the token path at a path
+      # we can't read. We replace the target file with a directory,
+      # which makes File.read return {:error, :eisdir} on POSIX.
+      client_id = unique_client_id("fs-err")
+      path = FileTokenStorage.token_path(client_id)
+      File.rm_rf!(path)
+      File.mkdir_p!(path)
+      on_exit(fn -> File.rm_rf!(path) end)
+
+      assert {:error, _reason} = FileTokenStorage.load(client_id)
     end
   end
 
@@ -138,6 +142,11 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
     test "is ~/.longbridge/openapi/tokens/<client_id>" do
       assert FileTokenStorage.token_path("abc") ==
                Path.join([System.user_home!(), ".longbridge", "openapi", "tokens", "abc"])
+    end
+
+    test "preserves the full client_id in the path" do
+      client_id = "with-dashes_and_underscores.123"
+      assert String.contains?(FileTokenStorage.token_path(client_id), client_id)
     end
   end
 end

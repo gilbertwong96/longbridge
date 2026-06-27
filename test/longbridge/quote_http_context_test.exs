@@ -287,6 +287,46 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "accepts a wrapped %{\"list\" => [...]} response" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{
+                list: [
+                  %{"symbol" => "AAPL.US"}
+                ]
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, [%{"symbol" => "AAPL.US"}]} =
+               QuoteHTTPContext.security_list(config_with(server.port),
+                 market: "US",
+                 category: "US.Overnight"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "returns [] when neither flat list nor %{\"list\" => _} present" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{code: 0, data: %{"other" => "x"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, []} =
+               QuoteHTTPContext.security_list(config_with(server.port),
+                 market: "US"
+               )
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "market_temperature/2" do
@@ -423,6 +463,19 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "returns [] when data is not a list and has no list wrapper" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, []} =
+               QuoteHTTPContext.short_trades(config_with(server.port), "TSLA.US")
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "watchlist_groups/1" do
@@ -466,6 +519,18 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "returns [] when data is neither groups nor a list" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, []} = QuoteHTTPContext.watchlist_groups(config_with(server.port))
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "create_watchlist_group/3" do
@@ -488,6 +553,74 @@ defmodule Longbridge.QuoteHTTPContextTest do
                  config_with(server.port),
                  "Tech",
                  ["AAPL.US", "NVDA.US"]
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts integer id" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => 123}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "123"} =
+               QuoteHTTPContext.create_watchlist_group(
+                 config_with(server.port),
+                 "Tech",
+                 []
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts group_id key (legacy)" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"group_id" => "group-99"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "group-99"} =
+               QuoteHTTPContext.create_watchlist_group(
+                 config_with(server.port),
+                 "Tech",
+                 []
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "returns :missing_id when neither id nor group_id present" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:error, :missing_id} =
+               QuoteHTTPContext.create_watchlist_group(
+                 config_with(server.port),
+                 "Tech",
+                 []
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "propagates API errors" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:error, {:api_error, 403, "forbidden"}} =
+               QuoteHTTPContext.create_watchlist_group(
+                 config_with(server.port),
+                 "Tech",
+                 []
                )
 
       stop_fake_http_server(server)
@@ -594,6 +727,46 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
         stop_fake_http_server(server)
       end
+    end
+
+    test "accepts a binary mode string (passes through)" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {_method, _path, body} = parse_request(request)
+          decoded = Jason.decode!(body)
+          assert decoded["mode"] == "custom-mode"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert :ok =
+               QuoteHTTPContext.update_watchlist_group(
+                 config_with(server.port),
+                 "group-1",
+                 "Tech",
+                 [],
+                 "custom-mode"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "propagates API errors" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:error, {:api_error, 403, "forbidden"}} =
+               QuoteHTTPContext.update_watchlist_group(
+                 config_with(server.port),
+                 "group-1",
+                 "Tech",
+                 [],
+                 :add
+               )
+
+      stop_fake_http_server(server)
     end
   end
 
