@@ -378,6 +378,15 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `search/3` | Run a screener search — Mode A (`strategy_id:`) or Mode B (typed `conditions:`) |
 | `indicators/1` | List available screener indicators (strips `filter_` prefix; builds `tech_values` from `tech_indicators`) |
 
+### `Longbridge.QuoteHTTPContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `short_positions/3` | Short interest data (`.HK` = HKEX daily, others = US FINRA bi-monthly) |
+| `option_volume/2` | Real-time call/put volume snapshot for an option symbol |
+| `option_volume_daily/4` | Daily option volume for a symbol within a date range |
+| `update_pinned/4` | Pin or unpin a security to the top of a watchlist group |
+
 ### Push command codes (consumer-side)
 
 | Code | Message | Decode with |

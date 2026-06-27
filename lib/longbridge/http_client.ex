@@ -234,7 +234,7 @@ defmodule Longbridge.HTTPClient do
   (code 0), or returns an `{:error, {:api_error, code, message}}` tuple.
   """
   @spec request_json(atom(), String.t(), String.t(), Config.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map() | list()} | {:error, term()}
   def request_json(method, path, body, %Config{} = config, opts \\ []) do
     case request(method, path, body, config, opts) do
       {:ok, %{"code" => 0, "data" => data}} -> {:ok, data}

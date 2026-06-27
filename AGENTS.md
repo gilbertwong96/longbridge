@@ -28,6 +28,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
 | `Longbridge.SharelistContext` | Community sharelist management. HTTP-only. |
 | `Longbridge.ScreenerContext` | Stock-screener strategies, indicator search, AI recommendations. HTTP-only. Mirrors `ScreenerContext` in `longbridge/openapi-go` and `longbridge/openapi`. |
+| `Longbridge.QuoteHTTPContext` | HTTP-backed Quote methods (short positions, option volume, pinned watchlist). HTTP-only. Mirrors `QuoteContext` additions in `longbridge/openapi` 4.0.6. |
 | `Longbridge.Symbol` | Symbol ↔ counter_id conversion (`to_counter_id/1`, `index_to_counter_id/1`, `from_counter_id/1`). Used by HTTP `MarketContext`. Vendored directory data lives in `priv/counter_ids/`. |
 | `Longbridge.TradeContext` | Public API for the trade endpoint — orders, positions, account, executions, push. |
 | `Longbridge.WSConnection` | WebSocket GenServer. Owns the socket, WS upgrade, auth, heartbeat, request/response pairing, push dispatch. |
