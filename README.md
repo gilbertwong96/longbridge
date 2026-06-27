@@ -105,7 +105,43 @@ If you don't have a `client_id` yet, register one first:
 OAuth 2.0 in Longbridge only supports `authorization_code` (browser
 required) and `refresh_token` grants. For server-side programs,
 authorize once on a developer's workstation, then copy the token
-file to the server:
+file to the server.
+
+## OAuth 2.0 (custom token storage)
+
+The default storage writes tokens to
+`~/.longbridge/openapi/tokens/<client_id>`. To plug in Redis,
+Vault, an encrypted file, or anything else, implement the
+`Longbridge.OAuth.TokenStorage` behaviour and pass it via the
+`:storage` option:
+
+```elixir
+defmodule MyApp.RedisStorage do
+  @behaviour Longbridge.OAuth.TokenStorage
+
+  @impl true
+  def load(client_id) do
+    case Redix.command(:redix, ["GET", "oauth:token:#{client_id}"]) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, json} -> decode(json)
+      {:error, _} -> {:error, :not_found}
+    end
+  end
+
+  @impl true
+  def save(client_id, token) do
+    Redix.command(:redix, ["SET", "oauth:token:#{client_id}", Jason.encode!(token)])
+    :ok
+  end
+end
+
+Longbridge.OAuth.authorize("client-id", storage: MyApp.RedisStorage)
+```
+
+The `:storage` option is supported by `authorize/2`,
+`refresh_token/2`, `load_token/2`, and `export_token/2`.
+
+
 
 ```
 # On dev machine (browser available)
@@ -396,6 +432,7 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `option_volume/2` | Real-time call/put volume snapshot for an option symbol |
 | `option_volume_daily/4` | Daily option volume for a symbol within a date range |
 | `update_pinned/4` | Pin or unpin a security to the top of a watchlist group |
+| `security_list/2` | List securities available for a market (market, category, page, count) |
 
 ### Push command codes (consumer-side)
 
