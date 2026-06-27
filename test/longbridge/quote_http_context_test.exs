@@ -151,24 +151,22 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "queries the option volume endpoint" do
       server =
         start_fake_http_server(fn request, socket ->
-          assert request =~ "GET /v1/quote/option-volume"
+          assert request =~ "GET /v1/quote/option-volume-stats"
           assert request =~ "symbol=AAPL230317P160000.US"
 
           payload =
             Jason.encode!(%{
               code: 0,
               data: %{
-                "total_volume" => "100000",
-                "total_turnover" => "15000000",
-                "open_interest" => "50000",
-                "put_call_ratio" => "0.85"
+                "c" => "50000",
+                "p" => "40000"
               }
             })
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
-      assert {:ok, %{"total_volume" => "100000", "put_call_ratio" => "0.85"}} =
+      assert {:ok, %{"c" => "50000", "p" => "40000"}} =
                QuoteHTTPContext.option_volume(
                  config_with(server.port),
                  "AAPL230317P160000.US"
@@ -182,18 +180,20 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "queries the daily option volume endpoint with a date range" do
       server =
         start_fake_http_server(fn request, socket ->
-          assert request =~ "GET /v1/quote/option-volume-daily"
+          assert request =~ "GET /v1/quote/option-volume-stats/daily"
           assert request =~ "symbol=AAPL230317P160000.US"
-          assert request =~ "start_date=2024-06-01"
-          assert request =~ "end_date=2024-06-30"
+          assert request =~ "start=2024-06-01"
+          assert request =~ "end=2024-06-30"
 
           payload =
             Jason.encode!(%{
               code: 0,
-              data: [
-                %{"date" => "2024-06-03", "volume" => "5000"},
-                %{"date" => "2024-06-04", "volume" => "7000"}
-              ]
+              data: %{
+                stats: [
+                  %{"date" => "2024-06-03", "volume" => "5000"},
+                  %{"date" => "2024-06-04", "volume" => "7000"}
+                ]
+              }
             })
 
           :gen_tcp.send(socket, http_ok(payload))

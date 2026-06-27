@@ -22,8 +22,8 @@ defmodule Longbridge.QuoteHTTPContext do
   alias Longbridge.{Config, HTTPClient}
 
   @short_positions_path "/v1/quote/short-positions"
-  @option_volume_path "/v1/quote/option-volume"
-  @option_volume_daily_path "/v1/quote/option-volume-daily"
+  @option_volume_path "/v1/quote/option-volume-stats"
+  @option_volume_daily_path "/v1/quote/option-volume-stats/daily"
   @watchlist_pinned_path "/v1/quote/watchlist/pinned"
   @security_list_path "/v1/quote/get_security_list"
   @market_temperature_path "/v1/quote/market_temperature"
@@ -61,10 +61,13 @@ defmodule Longbridge.QuoteHTTPContext do
 
   @doc """
   Returns real-time call/put volume snapshot for today for an
-  option symbol (e.g. `AAPL230317P160000.US`), including total
-  volume, open interest, and put/call ratios.
+  option symbol (e.g. `AAPL230317P160000.US`).
 
-  Endpoint: `GET /v1/quote/option-volume`
+  Endpoint: `GET /v1/quote/option-volume-stats`
+
+  Returns a map with `"c"` (call volume, decimal string) and
+  `"p"` (put volume, decimal string) keys. Mirrors
+  `OptionVolumeStats` from `longbridge/openapi-go`.
   """
   @spec option_volume(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def option_volume(%Config{} = config, symbol) do
@@ -72,17 +75,23 @@ defmodule Longbridge.QuoteHTTPContext do
   end
 
   @doc """
-  Returns daily option volume for an option symbol within a date range.
+  Returns daily option volume for an option symbol within a date
+  range (inclusive `YYYY-MM-DD`).
 
-  Endpoint: `GET /v1/quote/option-volume-daily`
+  Endpoint: `GET /v1/quote/option-volume-stats/daily`
+
+  Returns a list of maps with `total_volume`, `total_put_volume`,
+  `total_call_volume`, `put_call_volume_ratio`, and open
+  interest fields. Mirrors `DailyOptionVolume` from
+  `longbridge/openapi-go`.
   """
   @spec option_volume_daily(Config.t(), String.t(), String.t(), String.t()) ::
           {:ok, list(map())} | {:error, term()}
   def option_volume_daily(%Config{} = config, symbol, start_date, end_date) do
-    params = "symbol=#{symbol}&start_date=#{start_date}&end_date=#{end_date}"
+    params = "symbol=#{symbol}&start=#{start_date}&end=#{end_date}"
 
     case HTTPClient.request_json(:get, @option_volume_daily_path, "", config, params: params) do
-      {:ok, items} when is_list(items) -> {:ok, items}
+      {:ok, %{"stats" => items}} when is_list(items) -> {:ok, items}
       {:ok, _other} -> {:ok, []}
       error -> error
     end
