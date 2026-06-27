@@ -38,6 +38,7 @@ defmodule Longbridge.QuoteContext do
 
   alias Longbridge.{Config, WSConnection}
   alias Longbridge.Quote.V1, as: Q
+  alias Longbridge.QuoteContext.RealtimeStore
 
   @type sub_type :: :QUOTE | :DEPTH | :BROKERS | :TRADE
 
@@ -434,6 +435,66 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_warrant_filter_list, req, Q.WarrantFilterListResponse)
   end
 
+  @doc """
+  Returns the most recent cached quote data for each symbol
+  from the local push-data store.
+
+  Reads from the in-memory store populated by incoming push
+  events. If the symbol has not been pushed since the
+  QuoteContext started, returns `nil` for that entry.
+
+  Mirrors `RealtimeQuote` from `longbridge/openapi-go` and
+  `QuoteContext::realtime_quote` in `longbridge/openapi/rust`.
+  """
+  @spec realtime_quote(pid(), [String.t()]) ::
+          {:ok, [struct() | nil]} | {:error, term()}
+  def realtime_quote(pid, symbols) when is_list(symbols) do
+    GenServer.call(pid, {:realtime_quote, symbols}, 5_000)
+  end
+
+  @doc """
+  Returns the most recent cached depth data for a symbol
+  from the local push-data store.
+  """
+  @spec realtime_depth(pid(), String.t()) ::
+          {:ok, struct() | nil} | {:error, term()}
+  def realtime_depth(pid, symbol) when is_binary(symbol) do
+    GenServer.call(pid, {:realtime_depth, symbol}, 5_000)
+  end
+
+  @doc """
+  Returns the most recent cached broker queue for a symbol
+  from the local push-data store.
+  """
+  @spec realtime_brokers(pid(), String.t()) ::
+          {:ok, struct() | nil} | {:error, term()}
+  def realtime_brokers(pid, symbol) when is_binary(symbol) do
+    GenServer.call(pid, {:realtime_brokers, symbol}, 5_000)
+  end
+
+  @doc """
+  Returns the most recent `count` cached trades for a symbol
+  from the local push-data store (capped at 500).
+
+  If fewer than `count` trades have been pushed, returns all
+  available trades in chronological order.
+  """
+  @spec realtime_trades(pid(), String.t(), non_neg_integer()) ::
+          {:ok, [struct()]} | {:error, term()}
+  def realtime_trades(pid, symbol, count \\ 50)
+      when is_binary(symbol) and is_integer(count) and count >= 0 do
+    GenServer.call(pid, {:realtime_trades, symbol, count}, 5_000)
+  end
+
+  @doc """
+  Clears the local push-data cache. Useful when reconnecting
+  or wanting to ignore stale data.
+  """
+  @spec reset_realtime_cache(pid()) :: :ok
+  def reset_realtime_cache(pid) do
+    GenServer.call(pid, :reset_realtime_cache)
+  end
+
   @doc "Queries market trade period information."
   @spec market_trade_period(pid()) :: {:ok, struct()} | {:error, term()}
   def market_trade_period(pid) do
@@ -619,6 +680,11 @@ defmodule Longbridge.QuoteContext do
       conn_opts = [config: config, type: :quote, parent: self()]
       {:ok, conn} = WSConnection.start_link(conn_opts)
 
+      # Local push-data cache. Mirrors the in-memory store in the
+      # upstream Rust/Go SDKs (SecuritiesData). The realtime_* family
+      # of methods reads from this store.
+      {:ok, store} = RealtimeStore.start_link(owner: self())
+
       # Schedule the user_quote_profile fetch as a follow-up so it
       # doesn't block init/1. Mirrors longbridge/openapi/rust/src/quote/
       # core.rs::Core::connect().
@@ -630,6 +696,7 @@ defmodule Longbridge.QuoteContext do
        %{
          conn: conn,
          config: config,
+         store: store,
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -680,6 +747,32 @@ defmodule Longbridge.QuoteContext do
   end
 
   @impl true
+  def handle_call({:realtime_quote, symbols}, _from, state) do
+    {:reply, RealtimeStore.get_quote(state.store, symbols), state}
+  end
+
+  @impl true
+  def handle_call({:realtime_depth, symbol}, _from, state) do
+    {:reply, RealtimeStore.get_depth(state.store, symbol), state}
+  end
+
+  @impl true
+  def handle_call({:realtime_brokers, symbol}, _from, state) do
+    {:reply, RealtimeStore.get_brokers(state.store, symbol), state}
+  end
+
+  @impl true
+  def handle_call({:realtime_trades, symbol, count}, _from, state) do
+    {:reply, RealtimeStore.get_trades(state.store, symbol, count), state}
+  end
+
+  @impl true
+  def handle_call(:reset_realtime_cache, _from, state) do
+    _ = RealtimeStore.reset(state.store)
+    {:reply, :ok, state}
+  end
+
+  @impl true
   def handle_info(:heartbeat, state) do
     send(state.conn, :heartbeat)
     schedule_heartbeat(state.config.heartbeat_interval)
@@ -708,7 +801,7 @@ defmodule Longbridge.QuoteContext do
 
   @impl true
   def handle_continue({:process_push, msg}, state) do
-    dispatch_push(msg, state.push_callbacks, state.default_push_callback)
+    dispatch_push(msg, state.push_callbacks, state.default_push_callback, state.store)
     {:noreply, state}
   end
 
@@ -729,25 +822,26 @@ defmodule Longbridge.QuoteContext do
 
   # ── Push event dispatch ───────────────────────────────
 
-  defp dispatch_push({:push, cmd_code, body}, callbacks, default_callback) do
+  defp dispatch_push({:push, cmd_code, body}, callbacks, default_callback, store) do
     topic = Map.get(@push_cmd_to_topic, cmd_code)
-    callback = topic && Map.get(callbacks, topic)
 
-    cond do
-      is_function(callback, 1) ->
-        callback.(decode_push(cmd_code, body))
+    case safe_decode_push(cmd_code, body) do
+      {:ok, decoded} ->
+        push_to_store(store, cmd_code, decoded)
+        callback = topic && Map.get(callbacks, topic)
 
-      is_function(default_callback, 1) ->
-        default_callback.(decode_push(cmd_code, body))
+        cond do
+          is_function(callback, 1) -> callback.(decoded)
+          is_function(default_callback, 1) -> default_callback.(decoded)
+          true -> :ok
+        end
 
-      true ->
-        # No callbacks registered — the message is dropped here but
-        # still reachable via Longbridge.WSConnection.subscribe_push/2.
+      {:error, _} ->
         :ok
     end
   end
 
-  defp dispatch_push(_other, _callbacks, _default), do: :ok
+  defp dispatch_push(_other, _callbacks, _default, _store), do: :ok
 
   defp decode_push(@push_cmd_quote, body),
     do: Protox.decode!(body, Q.PushQuote)
@@ -762,6 +856,30 @@ defmodule Longbridge.QuoteContext do
     do: Protox.decode!(body, Q.PushTrade)
 
   defp decode_push(_cmd_code, body), do: body
+
+  # Wraps Protox.decode! so a malformed body (e.g. the literal
+  # "push-data" used in tests) doesn't crash the QuoteContext. We
+  # silently drop undecodable events — they're still reachable via
+  # Longbridge.WSConnection.subscribe_push/2.
+  defp safe_decode_push(cmd_code, body) do
+    {:ok, decode_push(cmd_code, body)}
+  rescue
+    _ -> {:error, :decode_failed}
+  end
+
+  defp push_to_store(store, @push_cmd_quote, %Q.PushQuote{} = push),
+    do: RealtimeStore.put_quote(store, push)
+
+  defp push_to_store(store, @push_cmd_depth, %Q.PushDepth{} = push),
+    do: RealtimeStore.put_depth(store, push)
+
+  defp push_to_store(store, @push_cmd_brokers, %Q.PushBrokers{} = push),
+    do: RealtimeStore.put_brokers(store, push)
+
+  defp push_to_store(store, @push_cmd_trade, %Q.PushTrade{} = push),
+    do: RealtimeStore.put_trades(store, push)
+
+  defp push_to_store(_store, _cmd, _decoded), do: :ok
 
   # ── Helpers ──────────────────────────────────────────────
 

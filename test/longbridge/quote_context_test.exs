@@ -1,7 +1,7 @@
 defmodule Longbridge.QuoteContextTest do
   use ExUnit.Case, async: false
 
-  alias Longbridge.{Config, Protocol, QuoteContext}
+  alias Longbridge.{Config, Protocol, QuoteContext, WSConnection}
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol.Header
   alias Longbridge.Quote.V1, as: Q
@@ -1445,6 +1445,240 @@ defmodule Longbridge.QuoteContextTest do
       assert_receive {:callback, decoded}, 5_000
       assert decoded.symbol == "AAPL.US"
       assert decoded.last_done == "150.00"
+
+      cleanup(server, ctx)
+    end
+  end
+
+  describe "realtime cache" do
+    test "realtime_quote/2 returns nil for symbols without cached pushes" do
+      {server, ctx} =
+        connected_ctx("sess-rtempty#{System.unique_integer([:positive])}", empty_resp_handler())
+
+      assert {:ok, [nil, nil]} =
+               QuoteContext.realtime_quote(ctx, ["AAPL.US", "TSLA.US"])
+
+      cleanup(server, ctx)
+    end
+
+    test "realtime_quote/2 returns cached PushQuote after a push" do
+      test_pid = self()
+      push_quote = %Q.PushQuote{symbol: "AAPL.US", sequence: 1, last_done: "150.00"}
+
+      sid = "sess-rtquote#{System.unique_integer([:positive])}"
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        if cmd_code == 4 do
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+              )
+            )
+          )
+        end
+
+        if cmd_code == 11 do
+          :gen_tcp.send(client, ws_encode_binary(build_push(101, encode_msg(push_quote))))
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+              )
+            )
+          )
+        end
+      end
+
+      {:ok, server} = start_server(sid, handler)
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+      %{conn: conn} = :sys.get_state(ctx)
+      :ok = WSConnection.subscribe_push(conn, self())
+
+      QuoteContext.quote(ctx, ["AAPL.US"])
+      assert_receive {:longbridge, _, {:push, _, _}}, 2_000
+      Process.sleep(50)
+
+      assert {:ok, [^push_quote]} = QuoteContext.realtime_quote(ctx, ["AAPL.US"])
+
+      assert {:ok, [^push_quote, nil]} =
+               QuoteContext.realtime_quote(ctx, ["AAPL.US", "TSLA.US"])
+
+      cleanup(server, ctx)
+    end
+
+    test "realtime_depth/2 returns cached PushDepth" do
+      test_pid = self()
+      push_depth = %Q.PushDepth{symbol: "AAPL.US", sequence: 1}
+
+      sid = "sess-rtdepth#{System.unique_integer([:positive])}"
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        if cmd_code == 4 do
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+              )
+            )
+          )
+        end
+
+        if cmd_code == 11 do
+          :gen_tcp.send(client, ws_encode_binary(build_push(102, encode_msg(push_depth))))
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+              )
+            )
+          )
+        end
+      end
+
+      {:ok, server} = start_server(sid, handler)
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+      %{conn: conn} = :sys.get_state(ctx)
+      :ok = WSConnection.subscribe_push(conn, self())
+
+      QuoteContext.quote(ctx, ["AAPL.US"])
+      assert_receive {:longbridge, _, {:push, _, _}}, 2_000
+      Process.sleep(50)
+
+      assert {:ok, ^push_depth} = QuoteContext.realtime_depth(ctx, "AAPL.US")
+      assert {:ok, nil} = QuoteContext.realtime_depth(ctx, "TSLA.US")
+
+      cleanup(server, ctx)
+    end
+
+    test "realtime_trades/3 returns recent trades capped at 500" do
+      # Build a single PushTrade event with 3 trades.
+      trades = [
+        %Q.Trade{price: "150.00", volume: 100, timestamp: 1_700_000_000},
+        %Q.Trade{price: "151.00", volume: 200, timestamp: 1_700_000_001},
+        %Q.Trade{price: "152.00", volume: 300, timestamp: 1_700_000_002}
+      ]
+
+      push_trade = %Q.PushTrade{symbol: "AAPL.US", sequence: 1, trade: trades}
+
+      sid = "sess-rttrades#{System.unique_integer([:positive])}"
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        if cmd_code == 4 do
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+              )
+            )
+          )
+        end
+
+        if cmd_code == 11 do
+          :gen_tcp.send(client, ws_encode_binary(build_push(104, encode_msg(push_trade))))
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+              )
+            )
+          )
+        end
+      end
+
+      {:ok, server} = start_server(sid, handler)
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+      %{conn: conn} = :sys.get_state(ctx)
+      :ok = WSConnection.subscribe_push(conn, self())
+
+      QuoteContext.quote(ctx, ["AAPL.US"])
+      assert_receive {:longbridge, _, {:push, _, _}}, 2_000
+      Process.sleep(50)
+
+      assert {:ok, ^trades} = QuoteContext.realtime_trades(ctx, "AAPL.US", 10)
+      assert {:ok, [last]} = QuoteContext.realtime_trades(ctx, "AAPL.US", 1)
+
+      assert last.price == "152.00"
+
+      cleanup(server, ctx)
+    end
+
+    test "reset_realtime_cache/1 clears the store" do
+      push_quote = %Q.PushQuote{symbol: "AAPL.US", sequence: 1}
+
+      sid = "sess-rtreset#{System.unique_integer([:positive])}"
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        if cmd_code == 4 do
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.UserQuoteProfileResponse{rate_limit: []})
+              )
+            )
+          )
+        end
+
+        if cmd_code == 11 do
+          :gen_tcp.send(client, ws_encode_binary(build_push(101, encode_msg(push_quote))))
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(
+              build_response(
+                cmd_code,
+                req_id,
+                encode_msg(%Q.SecurityQuoteResponse{secu_quote: []})
+              )
+            )
+          )
+        end
+      end
+
+      {:ok, server} = start_server(sid, handler)
+      assert_receive {:port, port}, 2_000
+      ctx = start_ctx(port)
+      wait_for_session(ctx)
+      %{conn: conn} = :sys.get_state(ctx)
+      :ok = WSConnection.subscribe_push(conn, self())
+
+      QuoteContext.quote(ctx, ["AAPL.US"])
+      assert_receive {:longbridge, _, {:push, _, _}}, 2_000
+      Process.sleep(50)
+
+      assert {:ok, [^push_quote]} = QuoteContext.realtime_quote(ctx, ["AAPL.US"])
+      assert :ok = QuoteContext.reset_realtime_cache(ctx)
+      assert {:ok, [nil]} = QuoteContext.realtime_quote(ctx, ["AAPL.US"])
 
       cleanup(server, ctx)
     end
