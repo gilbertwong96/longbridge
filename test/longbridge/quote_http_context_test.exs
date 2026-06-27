@@ -425,6 +425,178 @@ defmodule Longbridge.QuoteHTTPContextTest do
     end
   end
 
+  describe "watchlist_groups/1" do
+    test "queries the watchlist groups endpoint" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/watchlist/groups"
+
+          payload =
+            Jason.encode!(%{
+              "code" => 0,
+              "data" => %{
+                "groups" => [
+                  %{"id" => "1", "name" => "Tech", "securities" => ["AAPL.US"]},
+                  %{"id" => "2", "name" => "Bank", "securities" => []}
+                ]
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok,
+              [
+                %{"id" => "1", "name" => "Tech"},
+                %{"id" => "2", "name" => "Bank"}
+              ]} = QuoteHTTPContext.watchlist_groups(config_with(server.port))
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts a flat list response" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => [%{"id" => "1"}]})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, [%{"id" => "1"}]} =
+               QuoteHTTPContext.watchlist_groups(config_with(server.port))
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "create_watchlist_group/3" do
+    test "POSTs the group with name and securities" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, _path, body} = parse_request(request)
+          assert method == "POST"
+
+          decoded = Jason.decode!(body)
+          assert decoded["name"] == "Tech"
+          assert decoded["securities"] == ["AAPL.US", "NVDA.US"]
+
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => "group-42"}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "group-42"} =
+               QuoteHTTPContext.create_watchlist_group(
+                 config_with(server.port),
+                 "Tech",
+                 ["AAPL.US", "NVDA.US"]
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "delete_watchlist_group/3" do
+    test "DELETEs the group with purge flag" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, path, body} = parse_request(request)
+          assert method == "DELETE"
+          assert path == "/v1/watchlist/groups"
+
+          decoded = Jason.decode!(body)
+          assert decoded["id"] == "group-1"
+          assert decoded["purge"] == true
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+          )
+        end)
+
+      assert :ok =
+               QuoteHTTPContext.delete_watchlist_group(
+                 config_with(server.port),
+                 "group-1",
+                 true
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "defaults purge to false" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+          )
+        end)
+
+      assert :ok =
+               QuoteHTTPContext.delete_watchlist_group(
+                 config_with(server.port),
+                 "group-1"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "update_watchlist_group/5" do
+    test "PUTs the group with mode encoded as a string" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, path, body} = parse_request(request)
+          assert method == "PUT"
+          assert path == "/v1/watchlist/groups"
+
+          decoded = Jason.decode!(body)
+          assert decoded["id"] == "group-1"
+          assert decoded["name"] == "Tech"
+          assert decoded["securities"] == ["AAPL.US"]
+          assert decoded["mode"] == "add"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+          )
+        end)
+
+      assert :ok =
+               QuoteHTTPContext.update_watchlist_group(
+                 config_with(server.port),
+                 "group-1",
+                 "Tech",
+                 ["AAPL.US"],
+                 :add
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts :remove and :replace modes" do
+      for mode <- [:remove, :replace] do
+        server =
+          start_fake_http_server(fn _request, socket ->
+            :gen_tcp.send(
+              socket,
+              http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            )
+          end)
+
+        assert :ok =
+                 QuoteHTTPContext.update_watchlist_group(
+                   config_with(server.port),
+                   "group-1",
+                   "Tech",
+                   ["AAPL.US"],
+                   mode
+                 )
+
+        stop_fake_http_server(server)
+      end
+    end
+  end
+
   describe "update_pinned/4" do
     test "POSTs the pin request and returns :ok on success" do
       server =

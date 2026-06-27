@@ -29,6 +29,7 @@ defmodule Longbridge.QuoteHTTPContext do
   @market_temperature_path "/v1/quote/market_temperature"
   @history_market_temperature_path "/v1/quote/history_market_temperature"
   @short_trades_path "/v1/quote/short-trades"
+  @watchlist_groups_path "/v1/watchlist/groups"
 
   @doc """
   Returns short interest data for a symbol.
@@ -111,6 +112,96 @@ defmodule Longbridge.QuoteHTTPContext do
       error -> error
     end
   end
+
+  @doc """
+  Lists the current user's watchlist groups.
+
+  Endpoint: `GET /v1/watchlist/groups`
+  """
+  @spec watchlist_groups(Config.t()) :: {:ok, list(map())} | {:error, term()}
+  def watchlist_groups(%Config{} = config) do
+    case HTTPClient.request_json(:get, @watchlist_groups_path, "", config) do
+      {:ok, %{"groups" => groups}} when is_list(groups) -> {:ok, groups}
+      {:ok, groups} when is_list(groups) -> {:ok, groups}
+      {:ok, _} -> {:ok, []}
+      error -> error
+    end
+  end
+
+  @doc """
+  Creates a new watchlist group with the given name and seed symbols.
+
+  Endpoint: `POST /v1/watchlist/groups`
+
+  Returns `{:ok, group_id}` where `group_id` is the new group id.
+  """
+  @spec create_watchlist_group(Config.t(), String.t(), [String.t()]) ::
+          {:ok, String.t()} | {:error, term()}
+  def create_watchlist_group(%Config{} = config, name, securities) do
+    body = Jason.encode!(%{name: name, securities: securities})
+
+    case HTTPClient.request_json(:post, @watchlist_groups_path, body, config) do
+      {:ok, %{"id" => id}} when is_binary(id) -> {:ok, id}
+      {:ok, %{"id" => id}} when is_integer(id) -> {:ok, Integer.to_string(id)}
+      {:ok, %{"id" => id}} -> {:ok, to_string(id)}
+      {:ok, %{"group_id" => id}} -> {:ok, to_string(id)}
+      {:ok, _} -> {:error, :missing_id}
+      error -> error
+    end
+  end
+
+  @doc """
+  Deletes a watchlist group by id.
+
+  Endpoint: `DELETE /v1/watchlist/groups`
+
+  `purge: true` removes the symbols from all other watchlist
+  groups; `purge: false` only deletes the group, leaving symbols
+  in other groups intact.
+  """
+  @spec delete_watchlist_group(Config.t(), String.t(), boolean()) ::
+          :ok | {:error, term()}
+  def delete_watchlist_group(%Config{} = config, group_id, purge \\ false)
+      when is_boolean(purge) do
+    body = Jason.encode!(%{id: group_id, purge: purge})
+
+    case HTTPClient.request_json(:delete, @watchlist_groups_path, body, config) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  @doc """
+  Updates a watchlist group.
+
+  Endpoint: `PUT /v1/watchlist/groups`
+
+  `mode` is one of:
+    * `:add` — append `securities` to the group (preserving existing entries).
+    * `:remove` — remove `securities` from the group.
+    * `:replace` — replace the group's full symbol list.
+  """
+  @spec update_watchlist_group(Config.t(), String.t(), String.t(), [String.t()], atom()) ::
+          :ok | {:error, term()}
+  def update_watchlist_group(%Config{} = config, group_id, name, securities, mode) do
+    body =
+      Jason.encode!(%{
+        id: group_id,
+        name: name,
+        securities: securities,
+        mode: encode_watchlist_mode(mode)
+      })
+
+    case HTTPClient.request_json(:put, @watchlist_groups_path, body, config) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp encode_watchlist_mode(:add), do: "add"
+  defp encode_watchlist_mode(:remove), do: "remove"
+  defp encode_watchlist_mode(:replace), do: "replace"
+  defp encode_watchlist_mode(other) when is_binary(other), do: other
 
   @doc """
   Returns the current market temperature for a market.
