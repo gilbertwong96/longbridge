@@ -124,12 +124,13 @@ defmodule Longbridge.HTTPClient do
         signed_headers
       )
 
-    request_headers = [
-      {"x-api-key", config.app_key},
-      {"authorization", config.token},
-      {"x-timestamp", ts},
-      {"x-api-signature", signature_header}
-    ]
+    request_headers =
+      [
+        {"x-api-key", config.app_key},
+        {"authorization", config.token},
+        {"x-timestamp", ts},
+        {"x-api-signature", signature_header}
+      ] ++ (config.headers || [])
 
     do_request(method, http_url, path_with_query, request_headers, body, opts)
   end

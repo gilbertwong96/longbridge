@@ -301,7 +301,8 @@ defmodule Longbridge.WSConnectionTest do
       quote_ws_url: "ws://127.0.0.1:#{port}",
       heartbeat_interval: Keyword.get(opts, :heartbeat_interval, 15_000),
       idle_timeout: Keyword.get(opts, :idle_timeout, 60_000),
-      request_timeout: Keyword.get(opts, :request_timeout, 10_000)
+      request_timeout: Keyword.get(opts, :request_timeout, 10_000),
+      headers: opts[:headers]
     )
   end
 
@@ -324,6 +325,35 @@ defmodule Longbridge.WSConnectionTest do
       assert {:ok, ^session_id, ^expires} = WSConnection.get_session(conn)
 
       stop_server(conn)
+    end
+
+    test "emits custom headers on the WS upgrade" do
+      test_pid = self()
+      {:ok, port, _session_id, _} = start_fake_server()
+
+      config =
+        ws_config(port,
+          headers: [{"X-Forwarded-For", "1.2.3.4"}, {"X-Tenant", "acme"}]
+        )
+
+      {:ok, _conn} = WSConnection.start_link(config: config, type: :quote, parent: test_pid)
+
+      # The fake server sends the raw HTTP request it received.
+      assert_receive {:server, :http_request, http_request}, 2_000
+      assert extract_header(http_request, "x-forwarded-for") == "1.2.3.4"
+      assert extract_header(http_request, "x-tenant") == "acme"
+    end
+
+    test "does not emit custom headers when Config.headers is nil" do
+      test_pid = self()
+      {:ok, port, _session_id, _} = start_fake_server()
+
+      config = ws_config(port)
+      {:ok, _conn} = WSConnection.start_link(config: config, type: :quote, parent: test_pid)
+
+      assert_receive {:server, :http_request, http_request}, 2_000
+      assert extract_header(http_request, "x-forwarded-for") == ""
+      assert extract_header(http_request, "x-tenant") == ""
     end
 
     test "auth failure with status 5 (UNAUTHENTICATED) does not retry" do

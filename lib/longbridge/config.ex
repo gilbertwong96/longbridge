@@ -36,6 +36,7 @@ defmodule Longbridge.Config do
     :trade_ws_url,
     :http_url,
     :gzip_threshold,
+    :headers,
     heartbeat_interval: 15_000,
     request_timeout: 10_000,
     idle_timeout: 60_000
@@ -51,6 +52,7 @@ defmodule Longbridge.Config do
           trade_ws_url: String.t() | nil,
           http_url: String.t(),
           gzip_threshold: non_neg_integer() | nil,
+          headers: [{String.t(), String.t()}] | nil,
           heartbeat_interval: non_neg_integer(),
           request_timeout: non_neg_integer(),
           idle_timeout: non_neg_integer()
@@ -80,6 +82,11 @@ defmodule Longbridge.Config do
   - `:heartbeat_interval` — Heartbeat interval in ms (default: 15000)
   - `:request_timeout` — Request timeout in ms (default: 10000)
   - `:idle_timeout` — Close connection after this many ms of inactivity (default: 600000)
+  - `:headers` — List of `{name, value}` tuples added to every HTTP
+    and WebSocket request. Useful for injecting `X-Forwarded-For`,
+    custom auth headers, or tenant routing headers. Mirrors
+    `Config::header(key, value)` from `longbridge/openapi` Rust SDK
+    (4.0.6).
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -96,10 +103,21 @@ defmodule Longbridge.Config do
       trade_ws_url: opts[:trade_ws_url] || defaults[:trade_ws_url],
       http_url: opts[:http_url] || defaults[:http_url],
       gzip_threshold: opts[:gzip_threshold] || 1024,
+      headers: normalize_headers(opts[:headers]),
       heartbeat_interval: opts[:heartbeat_interval] || 15_000,
       request_timeout: opts[:request_timeout] || 10_000,
       idle_timeout: opts[:idle_timeout] || 600_000
     }
+  end
+
+  defp normalize_headers(nil), do: nil
+
+  defp normalize_headers(list) when is_list(list) do
+    Enum.map(list, fn
+      {k, v} when is_binary(k) and is_binary(v) -> {k, v}
+      {k, v} when is_atom(k) and is_binary(v) -> {Atom.to_string(k), v}
+      {k, v} when is_binary(k) and is_atom(v) -> {k, Atom.to_string(v)}
+    end)
   end
 
   defp region_defaults(true) do

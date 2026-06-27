@@ -289,6 +289,142 @@ defmodule Longbridge.QuoteHTTPContextTest do
     end
   end
 
+  describe "market_temperature/2" do
+    test "queries with the market parameter" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/market_temperature"
+          assert request =~ "market=HK"
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{"temperature" => 65, "sentiment" => "Greed", "market" => "HK"}
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, %{"temperature" => 65, "sentiment" => "Greed"}} =
+               QuoteHTTPContext.market_temperature(config_with(server.port), "HK")
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "history_market_temperature/4" do
+    test "queries with market and date range" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/history_market_temperature"
+          assert request =~ "market=US"
+          assert request =~ "start_date=2024-01-01"
+          assert request =~ "end_date=2024-06-30"
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{
+                "list" => [
+                  %{"date" => "2024-01-02", "temperature" => 45, "sentiment" => "Neutral"},
+                  %{"date" => "2024-01-03", "temperature" => 52, "sentiment" => "Neutral"}
+                ]
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok,
+              %{
+                "list" => [
+                  %{"date" => "2024-01-02", "temperature" => 45},
+                  %{"date" => "2024-01-03", "temperature" => 52}
+                ]
+              }} =
+               QuoteHTTPContext.history_market_temperature(
+                 config_with(server.port),
+                 "US",
+                 "2024-01-01",
+                 "2024-06-30"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "short_trades/3" do
+    test "routes .HK symbols to /short-trades/hk" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/short-trades/hk"
+          assert request =~ "counter_id=ST%2FHK%2F700"
+          assert request =~ "page_size=50"
+          assert request =~ "last_timestamp=0"
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: [
+                %{
+                  "timestamp" => "1779471885",
+                  "price" => "426.010",
+                  "volume" => "1000",
+                  "side" => "Short"
+                }
+              ]
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, [%{"side" => "Short", "price" => "426.010"}]} =
+               QuoteHTTPContext.short_trades(config_with(server.port), "700.HK")
+
+      stop_fake_http_server(server)
+    end
+
+    test "routes non-HK symbols to /short-trades/us" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/short-trades"
+          refute request =~ "/short-trades/hk"
+          assert request =~ "counter_id=ST%2FUS%2FAAPL"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => []}))
+          )
+        end)
+
+      assert {:ok, []} =
+               QuoteHTTPContext.short_trades(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+
+    test "supports count and last_timestamp options for pagination" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "page_size=100"
+          assert request =~ "last_timestamp=1779471885"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+          )
+        end)
+
+      assert {:ok, _} =
+               QuoteHTTPContext.short_trades(config_with(server.port), "TSLA.US",
+                 count: 100,
+                 last_timestamp: 1_779_471_885
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
   describe "update_pinned/4" do
     test "POSTs the pin request and returns :ok on success" do
       server =

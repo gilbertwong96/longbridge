@@ -26,6 +26,9 @@ defmodule Longbridge.QuoteHTTPContext do
   @option_volume_daily_path "/v1/quote/option-volume-daily"
   @watchlist_pinned_path "/v1/quote/watchlist/pinned"
   @security_list_path "/v1/quote/get_security_list"
+  @market_temperature_path "/v1/quote/market_temperature"
+  @history_market_temperature_path "/v1/quote/history_market_temperature"
+  @short_trades_path "/v1/quote/short-trades"
 
   @doc """
   Returns short interest data for a symbol.
@@ -102,6 +105,77 @@ defmodule Longbridge.QuoteHTTPContext do
     params = HTTPClient.build_query(opts)
 
     case HTTPClient.request_json(:get, @security_list_path, "", config, params: params) do
+      {:ok, items} when is_list(items) -> {:ok, items}
+      {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
+      {:ok, _} -> {:ok, []}
+      error -> error
+    end
+  end
+
+  @doc """
+  Returns the current market temperature for a market.
+
+  Endpoint: `GET /v1/quote/market_temperature`
+
+  `market` is one of `"US" | "HK" | "CN" | "SG"`.
+
+  The response includes a numeric `temperature` (0-100, where
+  higher = greedier market) and a sentiment label.
+  """
+  @spec market_temperature(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def market_temperature(%Config{} = config, market) do
+    HTTPClient.request_json(:get, @market_temperature_path, "", config,
+      params: "market=#{market}"
+    )
+  end
+
+  @doc """
+  Returns historical market temperature for a market within
+  a date range.
+
+  Endpoint: `GET /v1/quote/history_market_temperature`
+
+  `start_date` and `end_date` are `"YYYY-MM-DD"` strings.
+  """
+  @spec history_market_temperature(Config.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def history_market_temperature(%Config{} = config, market, start_date, end_date) do
+    params = "market=#{market}&start_date=#{start_date}&end_date=#{end_date}"
+    HTTPClient.request_json(:get, @history_market_temperature_path, "", config, params: params)
+  end
+
+  @doc """
+  Returns recent short-selling trades for a symbol.
+
+  Endpoint: `GET /v1/quote/short-trades/us` (or `.../hk` for `.HK`
+  symbols).
+
+  ## Options
+
+    * `:count` — integer, default 50.
+    * `:last_timestamp` — Unix timestamp seconds to paginate
+      backwards from (omit for latest).
+  """
+  @spec short_trades(Config.t(), String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  def short_trades(%Config{} = config, symbol, opts \\ []) do
+    count = Keyword.get(opts, :count, 50)
+    last_ts = Keyword.get(opts, :last_timestamp, 0)
+
+    path =
+      if String.ends_with?(String.upcase(symbol), ".HK") do
+        "/v1/quote/short-trades/hk"
+      else
+        @short_trades_path
+      end
+
+    params =
+      HTTPClient.build_query(
+        counter_id: Longbridge.Symbol.to_counter_id(symbol),
+        last_timestamp: last_ts,
+        page_size: count
+      )
+
+    case HTTPClient.request_json(:get, path, "", config, params: params) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}

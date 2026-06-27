@@ -344,13 +344,14 @@ defmodule Longbridge.WSConnection do
     ws_key = Base.encode64(:crypto.strong_rand_bytes(16))
     path = "/?version=1&codec=1&platform=9"
 
-    headers = [
-      {"host", state.ws_host},
-      {"upgrade", "websocket"},
-      {"connection", "upgrade"},
-      {"sec-websocket-key", ws_key},
-      {"sec-websocket-version", "13"}
-    ]
+    headers =
+      [
+        {"host", state.ws_host},
+        {"upgrade", "websocket"},
+        {"connection", "upgrade"},
+        {"sec-websocket-key", ws_key},
+        {"sec-websocket-version", "13"}
+      ] ++ (state.config.headers || [])
 
     # Store the nonce in Mint's private data so WebSocket.new can validate it.
     mint_conn =

@@ -88,6 +88,25 @@ defmodule Longbridge.ConfigHTTPTest do
       config = Config.new(http_url: "https://custom.api.com")
       assert config.http_url == "https://custom.api.com"
     end
+
+    test "stores custom headers as a list of tuples" do
+      config =
+        Config.new(headers: [{"X-Forwarded-For", "1.2.3.4"}, {"X-Tenant", "acme"}])
+
+      assert config.headers == [{"X-Forwarded-For", "1.2.3.4"}, {"X-Tenant", "acme"}]
+    end
+
+    test "normalises atom keys to strings" do
+      config =
+        Config.new(headers: [{:"X-Forwarded-For", "1.2.3.4"}, {:x_tenant, "acme"}])
+
+      assert config.headers == [{"X-Forwarded-For", "1.2.3.4"}, {"x_tenant", "acme"}]
+    end
+
+    test "defaults headers to nil" do
+      config = Config.new()
+      assert config.headers == nil
+    end
   end
 
   # ── Config.with_socket_token/1 ──────────────────────────
