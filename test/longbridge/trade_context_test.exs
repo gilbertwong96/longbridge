@@ -367,12 +367,12 @@ defmodule Longbridge.TradeContextTest do
   end
 
   describe "estimate_max_purchase_quantity/2" do
-    test "sends a POST to /v1/trade/estimate" do
+    test "sends a GET to /v1/trade/estimate/buy_limit" do
       server =
         start_fake_http_server(fn req, sock ->
           parsed = parse_request(req)
-          assert parsed.method == "POST"
-          assert String.contains?(parsed.path, "/v1/trade/estimate")
+          assert parsed.method == "GET"
+          assert String.contains?(parsed.path, "/v1/trade/estimate/buy_limit")
 
           reply_json(sock, %{
             code: 0,

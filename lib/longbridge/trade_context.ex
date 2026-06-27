@@ -269,8 +269,8 @@ defmodule Longbridge.TradeContext do
   """
   @spec estimate_max_purchase_quantity(pid(), keyword()) :: {:ok, map()} | {:error, term()}
   def estimate_max_purchase_quantity(pid, opts) do
-    body = Jason.encode!(transform_keys(Map.new(opts)))
-    http_post(pid, "/v1/trade/estimate", body)
+    params = transform_keys(Map.new(opts))
+    http_get(pid, "/v1/trade/estimate/buy_limit", params)
   end
 
   # ── Subscribe / unsubscribe ─────────────────────────────
