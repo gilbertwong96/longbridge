@@ -126,6 +126,97 @@ defmodule Longbridge.OAuthTest do
     end
   end
 
+  describe "exchange_code/5" do
+    test "POSTs grant_type=authorization_code to the token endpoint" do
+      server =
+        start_oauth_fake_http(fn request_line ->
+          assert String.contains?(request_line, "POST /oauth2/token")
+          decoded = URI.decode_query(request_line)
+          _ = decoded
+
+          oauth_json_response(200, %{
+            "access_token" => "new-access-tok",
+            "refresh_token" => "new-refresh-tok",
+            "expires_in" => 7200,
+            "token_type" => "Bearer",
+            "scope" => "trade:read",
+            "user_id" => "u-1"
+          })
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      assert {:ok, token} =
+               OAuth.exchange_code("client-id", "auth-code", "http://localhost/callback",
+                 "verifier",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      assert token.access_token == "new-access-tok"
+      assert token.refresh_token == "new-refresh-tok"
+    end
+
+    test "propagates HTTP errors" do
+      server =
+        start_oauth_fake_http(fn _request_line ->
+          oauth_json_response(401, %{
+            "error" => "invalid_grant",
+            "error_description" => "code expired"
+          })
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      assert {:error, {:oauth_error, "invalid_grant", "code expired"}} =
+               OAuth.exchange_code("client-id", "bad", "http://localhost/callback", "v",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+    end
+  end
+
+  describe "register_client/1" do
+    test "POSTs to the register endpoint" do
+      server =
+        start_oauth_fake_http(fn request_line ->
+          assert String.contains?(request_line, "POST /oauth2/register")
+
+          oauth_json_response(200, %{"client_id" => "newly-registered"})
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      assert {:ok, "newly-registered"} =
+               OAuth.register_client(
+                 client_name: "My App",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+    end
+
+    test "returns :missing_client_id when response has no client_id" do
+      server =
+        start_oauth_fake_http(fn _request_line ->
+          oauth_json_response(200, %{"other" => "x"})
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      assert {:error, {:missing_client_id, _}} =
+               OAuth.register_client(http_url: "http://127.0.0.1:#{server.port}")
+    end
+
+    test "uses .cn endpoint when china: true" do
+      server =
+        start_oauth_fake_http(fn request_line ->
+          assert String.contains?(request_line, "POST openapi.longbridge.cn/oauth2/register")
+          oauth_json_response(200, %{"client_id" => "cn-id"})
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      assert {:ok, "cn-id"} = OAuth.register_client(china: true)
+    end
+  end
+
   describe "load_token/1 and export_token/1" do
     setup do
       # Use a unique test client_id that we know doesn't exist on disk
