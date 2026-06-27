@@ -291,6 +291,9 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `trade_status/2` | Intraday trade status for a symbol |
 | `index_constituents/2` | Constituents of a market index |
 | `anomaly_alerts/1` | Market anomaly alerts |
+| `top_movers/2` | Stocks with anomalous 20d price movement + linked news |
+| `rank_categories/1` | List rank categories for `rank_list/3` |
+| `rank_list/3` | Ranked securities for a category (adds `ib_` prefix automatically) |
 
 ### `Longbridge.ContentContext` (HTTP)
 
@@ -298,6 +301,11 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | --- | --- |
 | `news/2` | News articles with filtering/pagination |
 | `topics/2` | Community topics/posts |
+| `my_topics/2` | Topics created by the current authenticated user |
+| `create_topic/2` | Create a community topic; returns `{:ok, topic_id}` |
+| `topic_detail/2` | Single topic by ID |
+| `list_topic_replies/3` | Replies for a topic |
+| `create_topic_reply/3` | Post a reply to a topic |
 | `announcements/2` | Company announcements |
 
 ### `Longbridge.FundamentalContext` (HTTP)
@@ -314,6 +322,7 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `filings/2` | Regulatory filings for a symbol (e.g. SEC 10-K, 10-Q, insider forms) |
 | `macroeconomic_indicators/2` | List macroeconomic indicators for a country |
 | `macroeconomic/3` | Historical data for a specific macroeconomic indicator |
+| `valuation_comparison/4` | Compare valuation metrics across stocks (auto-selects peers when `comparison_symbols` is `nil`) |
 
 ### `Longbridge.CalendarContext` (HTTP)
 
