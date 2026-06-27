@@ -453,6 +453,10 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `market_temperature/2` | Current market temperature (0-100) for a market |
 | `history_market_temperature/4` | Historical market temperature within a YYYY-MM-DD date range |
 | `short_trades/3` | Recent short-selling trades (`.HK` → `/hk`, others → `/us`; count, last_timestamp) |
+| `watchlist_groups/1` | List watchlist groups |
+| `create_watchlist_group/3` | Create a watchlist group; returns `{:ok, group_id}` |
+| `delete_watchlist_group/3` | Delete a watchlist group (`purge: false` by default) |
+| `update_watchlist_group/5` | Update a watchlist group (`:add | :remove | :replace` modes) |
 
 ### Push command codes (consumer-side)
 
