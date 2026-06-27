@@ -219,6 +219,8 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `trades/3` | `QueryTrade` (17) | `count` defaults to 100. |
 | `intraday/3` | `QueryIntraday` (18) | `trade_session` defaults to 0. |
 | `candlesticks/6` | `QueryCandlestick` (19) | `period` accepts `:DAY`, `:MINUTE`, `:WEEK`, etc. |
+| `history_candlesticks_by_offset/3` | `QueryHistoryCandlestick` (27) | Walks forward/backward from a date. `direction: :forward | :backward`. |
+| `history_candlesticks_by_date/3` | `QueryHistoryCandlestick` (27) | Fetches within a `start_date`/`end_date` range. |
 | `option_chain_date/2` | `QueryOptionChainDate` (20) | |
 | `option_chain_strike_info/3` | `QueryOptionChainDateStrikeInfo` (21) | |
 | `warrant_issuer_info/1` | `QueryWarrantIssuerInfo` (22) | |
@@ -309,6 +311,7 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `valuation/2` | PE, PB, PS metrics |
 | `shareholders/2` | Shareholder distribution |
 | `etf_asset_allocation/2` | ETF asset allocation (holdings, regional, asset class, industry) |
+| `filings/2` | Regulatory filings for a symbol (e.g. SEC 10-K, 10-Q, insider forms) |
 | `macroeconomic_indicators/2` | List macroeconomic indicators for a country |
 | `macroeconomic/3` | Historical data for a specific macroeconomic indicator |
 
