@@ -49,8 +49,6 @@ defmodule Longbridge.MixProject do
   defp ignore_modules do
     # Auto-generated protobuf modules are exercised by encode/decode
     # round-trip tests in longbridge_test.exs, not by per-module coverage.
-    # HTTP-only contexts and OAuth are exercised by hand against a real
-    # Longbridge account (per AGENTS.md: no integration tests).
     ["_build/#{Mix.env()}/lib/longbridge/ebin/*.beam", "_build/dev/lib/longbridge/ebin/*.beam"]
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
@@ -59,24 +57,7 @@ defmodule Longbridge.MixProject do
     end)
     |> Enum.filter(fn mod ->
       mod_str = Atom.to_string(mod)
-
-      String.contains?(mod_str, ".V1.") or
-        mod in [
-          Longbridge.Control.V1,
-          Longbridge.Quote.V1,
-          Longbridge.Trade.V1,
-          Longbridge.Protos,
-          Longbridge.AlertContext,
-          Longbridge.AssetContext,
-          Longbridge.CalendarContext,
-          Longbridge.ContentContext,
-          Longbridge.DCAContext,
-          Longbridge.FundamentalContext,
-          Longbridge.MarketContext,
-          Longbridge.PortfolioContext,
-          Longbridge.SharelistContext,
-          Longbridge.OAuth
-        ]
+      String.contains?(mod_str, ".V1.") or mod == Longbridge.Protos
     end)
   end
 
