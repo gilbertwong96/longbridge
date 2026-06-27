@@ -32,6 +32,7 @@ defmodule Longbridge.FundamentalContext do
   @filings_path "/v1/quote/filings"
   @macroeconomic_indicators_path "/v2/quote/macrodata"
   @macroeconomic_path_prefix "/v2/quote/macrodata/"
+  @valuation_comparison_path "/v1/quote/compare/valuation"
 
   @country_to_market %{
     hong_kong: "HK",
@@ -55,6 +56,40 @@ defmodule Longbridge.FundamentalContext do
   @spec filings(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def filings(%Config{} = config, symbol) do
     HTTPClient.request_json(:get, @filings_path, "", config, params: "symbol=#{symbol}")
+  end
+
+  @doc """
+  Compares valuation metrics (PE/PB/PS/market cap/close price)
+  across multiple stocks. When `comparison_symbols` is `nil`, the
+  server auto-selects peers from the same industry.
+
+  Endpoint: `GET /v1/quote/compare/valuation?counter_id=...&currency=...`
+
+  `currency` is one of `"USD"`, `"HKD"`, `"CNY"`.
+  `comparison_symbols` is a list of symbols to compare against
+  (omit for auto-selection).
+
+  Added in `longbridge/openapi` 4.2.0.
+  """
+  @spec valuation_comparison(Config.t(), String.t(), String.t(), [String.t()] | nil) ::
+          {:ok, map()} | {:error, term()}
+  def valuation_comparison(
+        %Config{} = config,
+        symbol,
+        currency,
+        comparison_symbols \\ nil
+      ) do
+    params =
+      HTTPClient.build_query(
+        counter_id: Symbol.to_counter_id(symbol),
+        currency: currency,
+        comparison_counter_ids:
+          if comparison_symbols do
+            Jason.encode!(Enum.map(comparison_symbols, &Symbol.to_counter_id/1))
+          end
+      )
+
+    HTTPClient.request_json(:get, @valuation_comparison_path, "", config, params: params)
   end
 
   @doc """

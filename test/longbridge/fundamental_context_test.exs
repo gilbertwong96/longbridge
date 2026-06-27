@@ -336,6 +336,92 @@ defmodule Longbridge.FundamentalContextTest do
     end
   end
 
+  describe "valuation_comparison/4" do
+    test "converts the symbol to a counter_id and queries the endpoint" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, _path, _body} = parse_request(request)
+          assert method == "GET"
+          assert request =~ "/v1/quote/compare/valuation"
+          assert request =~ "counter_id=ST%2FUS%2FAAPL"
+          assert request =~ "currency=USD"
+
+          payload =
+            Jason.encode!(%{
+              "code" => 0,
+              "data" => %{
+                "list" => [
+                  %{
+                    "counter_id" => "ST/US/AAPL",
+                    "name" => "Apple Inc.",
+                    "currency" => "USD",
+                    "pe" => "32.15",
+                    "pb" => "50.21"
+                  }
+                ]
+              }
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, %{"list" => [%{"name" => "Apple Inc.", "pe" => "32.15"}]}} =
+               FundamentalContext.valuation_comparison(
+                 config_with(server.port),
+                 "AAPL.US",
+                 "USD"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "converts comparison_symbols to counter_ids" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "comparison_counter_ids="
+          # The inner array is JSON-encoded; check the encoded counter IDs.
+          assert request =~ "ST%2FUS%2FMSFT" or request =~ "ST/US/MSFT"
+          assert request =~ "ST%2FUS%2FGOOGL" or request =~ "ST/US/GOOGL"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+          )
+        end)
+
+      assert {:ok, _} =
+               FundamentalContext.valuation_comparison(
+                 config_with(server.port),
+                 "AAPL.US",
+                 "USD",
+                 ["MSFT.US", "GOOGL.US"]
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "omits comparison_counter_ids when nil" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          refute request =~ "comparison_counter_ids"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+          )
+        end)
+
+      assert {:ok, _} =
+               FundamentalContext.valuation_comparison(
+                 config_with(server.port),
+                 "AAPL.US",
+                 "USD"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
   describe "macroeconomic/3" do
     test "URL-encodes the indicator code into the path" do
       server =

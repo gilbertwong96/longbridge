@@ -19,6 +19,10 @@ defmodule Longbridge.MarketContext do
 
   alias Longbridge.{Config, HTTPClient, Symbol}
 
+  @top_movers_path "/v1/quote/market/stock-events"
+  @rank_categories_path "/v1/quote/market/rank/categories"
+  @rank_list_path "/v1/quote/market/rank/list"
+
   @doc """
   Returns the current trading session for all markets.
 
@@ -112,6 +116,84 @@ defmodule Longbridge.MarketContext do
     {:error, :removed_upstream}
   end
 
+  @doc """
+  Returns top market movers — stocks whose price movement exceeds
+  their 20-day standard deviation, with linked news context.
+
+  Endpoint: `POST /v1/quote/market/stock-events`
+
+  ## Options
+
+    * `:markets` — list of `"HK" | "US" | "CN" | "SG"`. Omit (or pass
+      `[]`) for all markets.
+    * `:sort` — `:hot` (default), `:time`, or `:change`.
+    * `:date` — `"YYYY-MM-DD"` filter. Optional.
+    * `:limit` — integer 1-100, default 20.
+
+  Renamed from `stock_events` in longbridge/openapi 4.2.0.
+  """
+  @spec top_movers(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def top_movers(%Config{} = config, opts \\ []) do
+    body =
+      opts
+      |> Map.new()
+      |> Map.put_new(:markets, [])
+      |> Map.put_new(:sort, 0)
+      |> Map.put_new(:limit, 20)
+      |> Enum.map(fn
+        {:markets, list} -> {:markets, Enum.map(list, &to_string/1)}
+        {:sort, atom} when is_atom(atom) -> {:sort, encode_top_movers_sort(atom)}
+        other -> other
+      end)
+      |> Map.new()
+      |> Jason.encode!()
+
+    HTTPClient.request_json(:post, @top_movers_path, body, config)
+  end
+
+  @doc """
+  Lists rank categories for `rank_list/2`.
+
+  Endpoint: `GET /v1/quote/market/rank/categories`
+
+  Returns a list of categories keyed by their `ib_<key>` IDs.
+  Pass the value of a category entry's `key` field to `rank_list/2`.
+  """
+  @spec rank_categories(Config.t()) :: {:ok, list()} | {:error, term()}
+  def rank_categories(%Config{} = config) do
+    case HTTPClient.request_json(:get, @rank_categories_path, "", config) do
+      {:ok, items} when is_list(items) -> {:ok, items}
+      {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
+      {:ok, _} -> {:ok, []}
+      error -> error
+    end
+  end
+
+  @doc """
+  Returns the ranked security list for a rank category.
+
+  Endpoint: `GET /v1/quote/market/rank/list?key=ib_<key>`
+
+  Pass the `key` value from one of the entries returned by
+  `rank_categories/1`. The `ib_` prefix is added automatically if
+  missing.
+
+  ## Options
+
+    * `:need_article` — boolean (default `false`). When `true`, the
+      response includes article content.
+  """
+  @spec rank_list(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def rank_list(%Config{} = config, key, opts \\ []) when is_binary(key) do
+    need_article = Keyword.get(opts, :need_article, false)
+    api_key = if String.starts_with?(key, "ib_"), do: key, else: "ib_" <> key
+
+    params =
+      "key=#{api_key}&delay_bmp=false&need_article=#{if need_article, do: "true", else: "false"}"
+
+    HTTPClient.request_json(:get, @rank_list_path, "", config, params: params)
+  end
+
   # ── Helpers ──────────────────────────────────────────────
 
   defp encode_period(:rct_1), do: "rct_1"
@@ -126,4 +208,8 @@ defmodule Longbridge.MarketContext do
   defp encode_line_type(:quarter), do: "quarter"
   defp encode_line_type(:year), do: "year"
   defp encode_line_type(other) when is_binary(other), do: other
+
+  defp encode_top_movers_sort(:hot), do: 0
+  defp encode_top_movers_sort(:time), do: 1
+  defp encode_top_movers_sort(:change), do: 2
 end
