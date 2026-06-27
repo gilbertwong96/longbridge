@@ -124,14 +124,13 @@ defmodule Longbridge.TradeContext do
   @spec replace_order(pid(), keyword()) :: {:ok, map()} | {:error, term()}
   def replace_order(pid, opts) do
     body = Jason.encode!(transform_keys(Map.new(opts)))
-    http_post(pid, "/v1/trade/order/replace", body)
+    http_put(pid, "/v1/trade/order", body)
   end
 
   @doc "Cancels an order by its order_id."
   @spec cancel_order(pid(), String.t()) :: {:ok, map()} | {:error, term()}
   def cancel_order(pid, order_id) do
-    body = Jason.encode!(%{order_id: order_id})
-    http_post(pid, "/v1/trade/order/cancel", body)
+    http_delete(pid, "/v1/trade/order", %{order_id: order_id})
   end
 
   # ── Order queries ───────────────────────────────────────
@@ -427,6 +426,20 @@ defmodule Longbridge.TradeContext do
   end
 
   @impl true
+  def handle_call({:http_put, path, body}, _from, state) do
+    result = HTTPClient.request(:put, path, body, state.http_config)
+    {:reply, unwrap_http(result), state}
+  end
+
+  @impl true
+  def handle_call({:http_delete, path, params}, _from, state) do
+    result =
+      HTTPClient.request(:delete, path, "", state.http_config, params: build_query(params))
+
+    {:reply, unwrap_http(result), state}
+  end
+
+  @impl true
   def handle_cast({:set_callback, callback}, state) do
     callbacks = Map.put(state.push_callbacks, @order_changed_topic, callback)
     {:noreply, %{state | push_callbacks: callbacks}}
@@ -486,6 +499,14 @@ defmodule Longbridge.TradeContext do
 
   defp http_post(pid, path, body) do
     GenServer.call(pid, {:http_post, path, body}, 30_000)
+  end
+
+  defp http_put(pid, path, body) do
+    GenServer.call(pid, {:http_put, path, body}, 30_000)
+  end
+
+  defp http_delete(pid, path, params) do
+    GenServer.call(pid, {:http_delete, path, params}, 30_000)
   end
 
   defp unwrap_http({:ok, %{"code" => 0, "data" => data}}) do

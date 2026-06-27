@@ -90,12 +90,13 @@ defmodule Longbridge.TradeContextTest do
   end
 
   describe "cancel_order/2" do
-    test "sends a POST to /v1/trade/order/cancel with order_id" do
+    test "sends a DELETE to /v1/trade/order with order_id query param" do
       server =
         start_fake_http_server(fn req, sock ->
           parsed = parse_request(req)
-          assert parsed.method == "POST"
-          assert String.contains?(parsed.path, "/v1/trade/order/cancel")
+          assert parsed.method == "DELETE"
+          assert String.starts_with?(parsed.path, "/v1/trade/order")
+          assert String.contains?(parsed.path, "order_id=my-order-id")
           reply_json(sock, %{code: 0, message: "ok", data: %{}})
         end)
 
@@ -108,12 +109,13 @@ defmodule Longbridge.TradeContextTest do
   end
 
   describe "replace_order/2" do
-    test "sends a POST to /v1/trade/order/replace" do
+    test "sends a PUT to /v1/trade/order" do
       server =
         start_fake_http_server(fn req, sock ->
           parsed = parse_request(req)
-          assert parsed.method == "POST"
-          assert String.contains?(parsed.path, "/v1/trade/order/replace")
+          assert parsed.method == "PUT"
+          assert String.starts_with?(parsed.path, "/v1/trade/order")
+          refute String.contains?(parsed.path, "/replace")
           reply_json(sock, %{code: 0, message: "ok", data: %{}})
         end)
 
