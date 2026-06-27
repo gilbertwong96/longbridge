@@ -2,6 +2,7 @@ defmodule Longbridge.HTTPClientTest do
   use ExUnit.Case, async: false
 
   alias Longbridge.{Config, HTTPClient}
+  alias Longbridge.TestSupport.FakeHTTPServer
 
   # ── Sign function (deterministic) ───────────────────────
 
@@ -147,23 +148,24 @@ defmodule Longbridge.HTTPClientTest do
       # 3. Return a canned JSON response
 
       server =
-        start_fake_http_server(fn request ->
-          # Request format: "GET /v1/token/refresh?expired_at=X HTTP/1.1\r\n..."
-          [request_line, _headers, _body] = split_http(request)
-          [_method, path_with_query, _version] = String.split(request_line, " ", parts: 3)
-
+        start_fake_http_server(fn conn ->
           [path, qs] =
-            case String.split(path_with_query, "?", parts: 2) do
+            case String.split(conn.request_path <> "?" <> conn.query_string, "?", parts: 2) do
               [p, q] -> [p, q]
               [p] -> [p, ""]
             end
 
-          request_headers = parse_http_headers(request)
+          get_header = fn name ->
+            case Plug.Conn.get_req_header(conn, name) do
+              [val | _] -> val
+              [] -> nil
+            end
+          end
 
           # HTTP headers are case-insensitive. Look up by lowercase.
-          ts = request_headers["x-timestamp"]
-          auth = request_headers["authorization"]
-          key = request_headers["x-api-key"]
+          ts = get_header.("x-timestamp")
+          auth = get_header.("authorization")
+          key = get_header.("x-api-key")
 
           # Reconstruct the canonical request the client should have signed.
           canonical =
@@ -191,7 +193,7 @@ defmodule Longbridge.HTTPClientTest do
             "HMAC-SHA256 SignedHeaders=authorization;x-api-key;x-timestamp, " <>
               "Signature=" <> expected_sig
 
-          actual_sig = request_headers["x-api-signature"]
+          actual_sig = get_header.("x-api-signature")
 
           if actual_sig == expected_x_api_signature do
             response_body =
@@ -201,9 +203,9 @@ defmodule Longbridge.HTTPClientTest do
                 data: %{token: new_token, expired_at: expired_at}
               })
 
-            http_json(200, response_body)
+            json(conn, 200, response_body)
           else
-            http_json(401, ~s({"code":403201,"message":"signature invalid"}))
+            json(conn, 401, ~s({"code":403201,"message":"signature invalid"}))
           end
         end)
 
@@ -224,8 +226,8 @@ defmodule Longbridge.HTTPClientTest do
       config = Config.new(token: "tok", app_key: app_key, app_secret: app_secret)
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(200, ~s({"code":403201,"message":"signature invalid"}))
+        start_fake_http_server(fn conn ->
+          json(conn, 200, ~s({"code":403201,"message":"signature invalid"}))
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -241,8 +243,8 @@ defmodule Longbridge.HTTPClientTest do
       config = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(200, "not-json-at-all")
+        start_fake_http_server(fn conn ->
+          json(conn, 200, "not-json-at-all")
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -258,8 +260,8 @@ defmodule Longbridge.HTTPClientTest do
       base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(401, ~s({"code":401}))
+        start_fake_http_server(fn conn ->
+          json(conn, 401, ~s({"code":401}))
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -273,8 +275,8 @@ defmodule Longbridge.HTTPClientTest do
       base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(401, ~s({"code":401}))
+        start_fake_http_server(fn conn ->
+          json(conn, 401, ~s({"code":401}))
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -290,8 +292,8 @@ defmodule Longbridge.HTTPClientTest do
       base = Config.new(token: "old-token", app_key: "k", app_secret: "s")
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(401, ~s({"code":401}))
+        start_fake_http_server(fn conn ->
+          json(conn, 401, ~s({"code":401}))
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -307,8 +309,8 @@ defmodule Longbridge.HTTPClientTest do
       base = Config.new(token: "tok", app_key: "k", app_secret: "s")
 
       server =
-        start_fake_http_server(fn _request ->
-          http_json(200, ~s({"code":0,"data":{}}))
+        start_fake_http_server(fn conn ->
+          json(conn, 200, ~s({"code":0,"data":{}}))
         end)
 
       on_exit(fn -> stop_fake_http_server(server) end)
@@ -339,102 +341,13 @@ defmodule Longbridge.HTTPClientTest do
     end
   end
 
-  # ── Fake HTTP server (raw TCP) ──────────────────────────
+  # ── Fake HTTP server (Bandit) ───────────────────────────
 
-  defp start_fake_http_server(handler) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(listen)
+  defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-    parent = self()
-    ready_ref = make_ref()
+  defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-    pid =
-      spawn(fn ->
-        send(parent, {ready_ref, :ready})
-
-        loop = fn loop ->
-          case :gen_tcp.accept(listen) do
-            {:ok, socket} ->
-              {:ok, request} = recv_http_request(socket)
-              response = handler.(request)
-              :ok = :gen_tcp.send(socket, response)
-              :ok = :gen_tcp.close(socket)
-              loop.(loop)
-
-            {:error, :closed} ->
-              :ok
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    receive do
-      {^ready_ref, :ready} -> :ok
-    after
-      5_000 -> raise "fake HTTP server failed to start"
-    end
-
-    %{port: port, pid: pid, socket: listen}
-  end
-
-  defp stop_fake_http_server(%{socket: socket, pid: pid}) do
-    Process.exit(pid, :kill)
-    :gen_tcp.close(socket)
-  end
-
-  defp recv_http_request(socket) do
-    read_until_double_crlf(socket, "")
-  end
-
-  # Read until we see the end of the HTTP headers (CRLFCRLF).
-  defp read_until_double_crlf(socket, acc) do
-    case :gen_tcp.recv(socket, 0, 5_000) do
-      {:ok, chunk} ->
-        acc = acc <> chunk
-
-        case :binary.match(acc, "\r\n\r\n") do
-          {pos, _} ->
-            # Headers end at `pos + 4`. Return what we have; body will follow
-            # but the body of our requests is empty so this is fine.
-            {:ok, binary_part(acc, 0, pos + 4)}
-
-          :nomatch ->
-            read_until_double_crlf(socket, acc)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp http_json(status, body) do
-    status_text = if status == 200, do: "OK", else: "Bad Request"
-
-    "HTTP/1.1 #{status} #{status_text}\r\n" <>
-      "Content-Type: application/json\r\n" <>
-      "Content-Length: #{byte_size(body)}\r\n" <>
-      "Connection: close\r\n\r\n" <> body
-  end
-
-  defp split_http(request) do
-    [head, body] = String.split(request, "\r\n\r\n", parts: 2)
-    [request_line | header_lines] = String.split(head, "\r\n", parts: 2)
-    headers = Enum.join(header_lines, "\r\n")
-    [request_line, headers, body || ""]
-  end
-
-  defp parse_http_headers(request) do
-    [head | _] = String.split(request, "\r\n\r\n", parts: 2)
-    [_request_line | header_lines] = String.split(head, "\r\n")
-
-    Enum.reduce(header_lines, %{}, fn line, acc ->
-      case String.split(line, ":", parts: 2) do
-        [k, v] -> Map.put(acc, String.downcase(k), String.trim(v))
-        _ -> acc
-      end
-    end)
-  end
+  defp json(conn, status, data), do: FakeHTTPServer.json(conn, status, data)
 
   # ── Crypto helpers (mirror HTTPClient internals) ────────
 

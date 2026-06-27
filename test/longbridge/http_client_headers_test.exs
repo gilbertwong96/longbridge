@@ -2,76 +2,32 @@ defmodule Longbridge.HTTPClientHeadersTest do
   use ExUnit.Case, async: false
 
   alias Longbridge.{Config, HTTPClient}
+  alias Longbridge.TestSupport.FakeHTTPServer
 
-  defp start_fake_http_server(handler) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(listen)
+  defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-    parent = self()
+  defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-    pid =
-      spawn(fn ->
-        send(parent, {:ready, :ok})
+  defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
-        loop = fn loop ->
-          case :gen_tcp.accept(listen, 5_000) do
-            {:ok, socket} ->
-              case :gen_tcp.recv(socket, 0, 5_000) do
-                {:ok, data} ->
-                  handler.(data, socket)
-                  :gen_tcp.close(socket)
-
-                _ ->
-                  :gen_tcp.close(socket)
-              end
-
-              loop.(loop)
-
-            {:error, :timeout} ->
-              :ok
-
-            {:error, _} ->
-              :ok
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    receive do
-      {:ready, :ok} -> :ok
-    after
-      2_000 -> raise "fake server failed to start"
-    end
-
-    %{port: port, pid: pid, socket: listen}
+  defp assert_req_header(conn, name, value) do
+    assert Plug.Conn.get_req_header(conn, name) == [value],
+           "expected header #{inspect(name)}: #{inspect(value)}"
   end
 
-  defp stop_fake_http_server(%{socket: socket, pid: pid}) do
-    Process.exit(pid, :kill)
-    :gen_tcp.close(socket)
-  end
-
-  defp http_ok(body) do
-    "HTTP/1.1 200 OK\r\n" <>
-      "Content-Type: application/json\r\n" <>
-      "Content-Length: #{byte_size(body)}\r\n" <>
-      "Connection: close\r\n\r\n" <> body
+  defp refute_req_header(conn, name) do
+    assert Plug.Conn.get_req_header(conn, name) == [],
+           "expected header #{inspect(name)} to be absent"
   end
 
   describe "custom headers in Config.headers" do
     test "are emitted on every HTTP request" do
       server =
-        start_fake_http_server(fn request, socket ->
-          # HTTP/1.1 headers are case-insensitive; the server-side
-          # normalises them to lowercase.
-          assert request =~ ~r/x-forwarded-for: 1\.2\.3\.4/i
-          assert request =~ ~r/x-tenant: acme/i
+        start_fake_http_server(fn conn ->
+          assert_req_header(conn, "x-forwarded-for", "1.2.3.4")
+          assert_req_header(conn, "x-tenant", "acme")
 
-          :gen_tcp.send(
-            socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
-          )
+          ok(conn, Jason.encode!(%{"code" => 0, "data" => %{}}))
         end)
 
       config =
@@ -90,14 +46,11 @@ defmodule Longbridge.HTTPClientHeadersTest do
 
     test "do not appear when Config.headers is nil" do
       server =
-        start_fake_http_server(fn request, socket ->
-          refute request =~ ~r/x-forwarded-for/i
-          refute request =~ ~r/x-tenant/i
+        start_fake_http_server(fn conn ->
+          refute_req_header(conn, "x-forwarded-for")
+          refute_req_header(conn, "x-tenant")
 
-          :gen_tcp.send(
-            socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
-          )
+          ok(conn, Jason.encode!(%{"code" => 0, "data" => %{}}))
         end)
 
       config =

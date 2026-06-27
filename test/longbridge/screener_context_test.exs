@@ -3,68 +3,21 @@ defmodule Longbridge.ScreenerContextTest do
 
   alias Longbridge.{Config, ScreenerContext}
 
+  alias Longbridge.TestSupport.FakeHTTPServer
+
   @path_strategy_recommend "/v1/quote/ai/screener/strategies/recommend"
   @path_strategy_mine "/v1/quote/ai/screener/strategies/mine"
   @path_strategy_detail "/v1/quote/ai/screener/strategy/"
   @path_strategy_search "/v1/quote/ai/screener/search"
   @path_indicators "/v1/quote/ai/screener/indicators"
 
-  defp start_fake_http_server(handler) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(listen)
+  defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-    parent = self()
+  defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-    pid =
-      spawn_link(fn ->
-        send(parent, {:ready, :ok})
+  defp parse_conn(conn), do: FakeHTTPServer.parse_conn(conn)
 
-        loop = fn loop ->
-          case :gen_tcp.accept(listen, 5_000) do
-            {:ok, socket} ->
-              case :gen_tcp.recv(socket, 0, 5_000) do
-                {:ok, request} -> handler.(request, socket)
-                _ -> :ok
-              end
-
-              :gen_tcp.close(socket)
-              loop.(loop)
-
-            {:error, :timeout} ->
-              :ok
-
-            {:error, _} ->
-              :ok
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    Process.unlink(pid)
-
-    receive do
-      {:ready, :ok} -> :ok
-    after
-      2_000 -> raise "fake server failed to start"
-    end
-
-    %{port: port, pid: pid, socket: listen}
-  end
-
-  defp stop_fake_http_server(server) do
-    Process.exit(server.pid, :kill)
-    :gen_tcp.close(server.socket)
-  end
-
-  defp http_json(status, body) do
-    status_text = if status == 200, do: "OK", else: "Bad Request"
-
-    "HTTP/1.1 #{status} #{status_text}\r\n" <>
-      "Content-Type: application/json\r\n" <>
-      "Content-Length: #{byte_size(body)}\r\n" <>
-      "Connection: close\r\n\r\n" <> body
-  end
+  defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
   defp config_with(port) do
     Config.new(
@@ -75,26 +28,22 @@ defmodule Longbridge.ScreenerContextTest do
     )
   end
 
-  defp parse_request_line(request) do
-    [line | _] = String.split(request, "\r\n")
-    [method, path, _version] = String.split(line, " ", parts: 3)
-    {method, path}
-  end
+  defp body_json(conn) do
+    parsed = parse_conn(conn)
 
-  defp split_http(request) do
-    [head, body] = String.split(request, "\r\n\r\n", parts: 2)
-    [request_line | _header_lines] = String.split(head, "\r\n", parts: 2)
-    [method, path, _version] = String.split(request_line, " ", parts: 3)
-    {method, path, body || ""}
+    case Jason.decode(parsed.body) do
+      {:ok, decoded} -> decoded
+      _ -> %{}
+    end
   end
 
   describe "recommend_strategies/2" do
     test "queries the recommend endpoint with the market parameter" do
       server =
-        start_fake_http_server(fn request, socket ->
-          {method, path} = parse_request_line(request)
-          assert method == "GET"
-          assert path == @path_strategy_recommend <> "?market=US"
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == @path_strategy_recommend <> "?market=US"
 
           body =
             Jason.encode!(%{
@@ -104,7 +53,7 @@ defmodule Longbridge.ScreenerContextTest do
               }
             })
 
-          :gen_tcp.send(socket, http_json(200, body))
+          ok(conn, body)
         end)
 
       assert {:ok, %{"strategies" => [%{"id" => 1, "name" => "Top Value"}]}} =
@@ -115,11 +64,11 @@ defmodule Longbridge.ScreenerContextTest do
 
     test "URL-encodes the market parameter" do
       server =
-        start_fake_http_server(fn request, socket ->
-          {_, path} = parse_request_line(request)
-          assert path == @path_strategy_recommend <> "?market=US%2FHK"
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.path_with_query == @path_strategy_recommend <> "?market=US%2FHK"
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{}})))
+          ok(conn, ~s({"code":0,"data":{}}))
         end)
 
       assert {:ok, _} =
@@ -132,12 +81,12 @@ defmodule Longbridge.ScreenerContextTest do
   describe "user_strategies/2" do
     test "queries the user strategies endpoint" do
       server =
-        start_fake_http_server(fn request, socket ->
-          {method, path} = parse_request_line(request)
-          assert method == "GET"
-          assert path == @path_strategy_mine <> "?market=HK"
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == @path_strategy_mine <> "?market=HK"
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{"strategies":[]}})))
+          ok(conn, ~s({"code":0,"data":{"strategies":[]}}))
         end)
 
       assert {:ok, %{"strategies" => []}} =
@@ -164,12 +113,12 @@ defmodule Longbridge.ScreenerContextTest do
       }
 
       server =
-        start_fake_http_server(fn request, socket ->
-          {method, path} = parse_request_line(request)
-          assert method == "GET"
-          assert path == @path_strategy_detail <> "42"
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == @path_strategy_detail <> "42"
 
-          :gen_tcp.send(socket, http_json(200, Jason.encode!(strategy_response)))
+          ok(conn, Jason.encode!(strategy_response))
         end)
 
       assert {:ok,
@@ -196,8 +145,8 @@ defmodule Longbridge.ScreenerContextTest do
       }
 
       server =
-        start_fake_http_server(fn _request, socket ->
-          :gen_tcp.send(socket, http_json(200, Jason.encode!(strategy_response)))
+        start_fake_http_server(fn conn ->
+          ok(conn, Jason.encode!(strategy_response))
         end)
 
       assert {:ok, %{"filter" => %{"filters" => [%{"key" => "roe"}]}}} =
@@ -207,30 +156,25 @@ defmodule Longbridge.ScreenerContextTest do
     end
   end
 
-  defp body_json(request) do
-    {_, _, body} = split_http(request)
-
-    case Jason.decode(body) do
-      {:ok, decoded} -> decoded
-      _ -> %{}
-    end
-  end
-
   describe "search/3 (Mode A: strategy_id)" do
     test "POSTs the strategy_id without conditions or market" do
       server =
-        start_fake_http_server(fn request, socket ->
-          {method, path} = parse_request_line(request)
-          assert method == "POST"
-          assert path == @path_strategy_search
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "POST"
+          assert parsed.path_with_query == @path_strategy_search
 
-          # The body is JSON; verify strategy_id is in the body
-          body = body_json(request)
+          body =
+            case Jason.decode(parsed.body) do
+              {:ok, decoded} -> decoded
+              _ -> %{}
+            end
+
           assert body["strategy_id"] == 42
           assert body["page"] == 0
           assert body["size"] == 50
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{"items":[]}})))
+          ok(conn, ~s({"code":0,"data":{"items":[]}}))
         end)
 
       assert {:ok, %{"items" => []}} =
@@ -247,8 +191,8 @@ defmodule Longbridge.ScreenerContextTest do
   describe "search/3 (Mode B: conditions)" do
     test "builds the filter_ prefixed conditions and includes default returns" do
       server =
-        start_fake_http_server(fn request, socket ->
-          body = body_json(request)
+        start_fake_http_server(fn conn ->
+          body = body_json(conn)
           assert body["market"] == "US"
           # The caller-provided key gets the filter_ prefix
           [filter | _] = body["filters"]
@@ -261,7 +205,7 @@ defmodule Longbridge.ScreenerContextTest do
           assert body["page"] == 0
           assert body["size"] == 50
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{"items":[]}})))
+          ok(conn, ~s({"code":0,"data":{"items":[]}}))
         end)
 
       assert {:ok, _} =
@@ -291,8 +235,8 @@ defmodule Longbridge.ScreenerContextTest do
       }
 
       server =
-        start_fake_http_server(fn _request, socket ->
-          :gen_tcp.send(socket, http_json(200, Jason.encode!(response)))
+        start_fake_http_server(fn conn ->
+          ok(conn, Jason.encode!(response))
         end)
 
       assert {:ok,
@@ -318,14 +262,14 @@ defmodule Longbridge.ScreenerContextTest do
 
     test "includes extra show columns in the returns list" do
       server =
-        start_fake_http_server(fn request, socket ->
-          body = body_json(request)
+        start_fake_http_server(fn conn ->
+          body = body_json(conn)
           [filter | _] = body["filters"]
           assert filter["key"] == "filter_pettm"
           assert "filter_revenue_growth" in body["returns"]
           assert "filter_prevclose" in body["returns"]
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{"items":[]}})))
+          ok(conn, ~s({"code":0,"data":{"items":[]}}))
         end)
 
       assert {:ok, _} =
@@ -341,13 +285,13 @@ defmodule Longbridge.ScreenerContextTest do
 
     test "uses an empty filters array when no conditions are given" do
       server =
-        start_fake_http_server(fn request, socket ->
-          body = body_json(request)
+        start_fake_http_server(fn conn ->
+          body = body_json(conn)
           assert body["filters"] == []
           assert body["page"] == 0
           assert body["size"] == 10
 
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{"items":[]}})))
+          ok(conn, ~s({"code":0,"data":{"items":[]}}))
         end)
 
       assert {:ok, _} =
@@ -389,12 +333,12 @@ defmodule Longbridge.ScreenerContextTest do
       }
 
       server =
-        start_fake_http_server(fn request, socket ->
-          {method, path} = parse_request_line(request)
-          assert method == "GET"
-          assert path == @path_indicators
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == @path_indicators
 
-          :gen_tcp.send(socket, http_json(200, Jason.encode!(response)))
+          ok(conn, Jason.encode!(response))
         end)
 
       assert {:ok,
@@ -441,8 +385,8 @@ defmodule Longbridge.ScreenerContextTest do
       }
 
       server =
-        start_fake_http_server(fn _request, socket ->
-          :gen_tcp.send(socket, http_json(200, Jason.encode!(response)))
+        start_fake_http_server(fn conn ->
+          ok(conn, Jason.encode!(response))
         end)
 
       assert {:ok, %{"groups" => [%{"indicators" => [%{"key" => "roe"}]}]}} =
@@ -453,8 +397,8 @@ defmodule Longbridge.ScreenerContextTest do
 
     test "handles a response without a `groups` key" do
       server =
-        start_fake_http_server(fn _request, socket ->
-          :gen_tcp.send(socket, http_json(200, ~s({"code":0,"data":{}})))
+        start_fake_http_server(fn conn ->
+          ok(conn, ~s({"code":0,"data":{}}))
         end)
 
       assert {:ok, %{}} =

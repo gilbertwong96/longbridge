@@ -634,9 +634,8 @@ defmodule Longbridge.OAuthTest do
   # ── Fake HTTP server helpers for OAuth tests ──────────────
 
   defp start_oauth_fake_http_with_finch(handler) do
-    # Test-only Finch instance. Atom creation is acceptable here —
-    # the name is unique per test via System.unique_integer/1.
-    finch_name = :"oauth_test_finch_#{System.unique_integer([:positive])}"
+    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
+    finch_name = String.to_atom("longbridge_oauth_finch_#{System.unique_integer([:positive])}")
 
     {:ok, _pid} =
       Finch.start_link(
@@ -686,7 +685,7 @@ defmodule Longbridge.OAuthTest do
     %{port: port, pid: pid, socket: listen}
   end
 
-  defp stop_oauth_fake_http(%{socket: socket, pid: pid, finch: nil} = server) do
+  defp stop_oauth_fake_http(%{socket: socket, pid: pid, finch: nil}) do
     Process.exit(pid, :kill)
     :gen_tcp.close(socket)
   end
@@ -714,11 +713,6 @@ defmodule Longbridge.OAuthTest do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  defp parse_request_line(request) do
-    [line | _] = String.split(request, "\r\n", parts: 2)
-    %{method: hd(String.split(line, " ", parts: 3)), path: Enum.at(String.split(line, " "), 1)}
   end
 
   defp oauth_json_response(status, body) do

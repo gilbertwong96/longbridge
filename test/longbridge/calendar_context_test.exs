@@ -3,56 +3,15 @@ defmodule Longbridge.CalendarContextTest do
 
   alias Longbridge.CalendarContext
 
-  defp start_fake_http_server(handler) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(listen)
+  alias Longbridge.TestSupport.FakeHTTPServer
 
-    parent = self()
+  defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-    pid =
-      spawn(fn ->
-        loop = fn loop ->
-          case :gen_tcp.accept(listen) do
-            {:ok, socket} ->
-              case :gen_tcp.recv(socket, 0, 5_000) do
-                {:ok, data} ->
-                  handler.(data, socket)
-                  :gen_tcp.close(socket)
+  defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-                _ ->
-                  :gen_tcp.close(socket)
-              end
+  defp parse_conn(conn), do: FakeHTTPServer.parse_conn(conn)
 
-              loop.(loop)
-
-            {:error, :closed} ->
-              :ok
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    Process.unlink(pid)
-
-    %{port: port, pid: pid, socket: listen}
-  end
-
-  defp stop_fake_http_server(%{socket: socket, pid: pid}) do
-    Process.exit(pid, :kill)
-    :gen_tcp.close(socket)
-  end
-
-  defp http_ok(body) do
-    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{byte_size(body)}\r\nConnection: close\r\n\r\n#{body}"
-  end
-
-  defp parse_request(req) do
-    [head, body] = String.split(req, "\r\n\r\n", parts: 2)
-    [request_line | _] = String.split(head, "\r\n", parts: 2)
-    [method, path_with_query, _] = String.split(request_line, " ", parts: 3)
-    %{method: method, path_with_query: path_with_query, body: body || ""}
-  end
+  defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
   defp config_with(port) do
     Longbridge.Config.new(
@@ -66,8 +25,8 @@ defmodule Longbridge.CalendarContextTest do
   describe "earnings/4" do
     test "queries the finance calendar endpoint with category=earnings" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.method == "GET"
           assert parsed.path_with_query =~ "/v1/quote/finance_calendar"
           assert parsed.path_with_query =~ "types=report"
@@ -75,7 +34,7 @@ defmodule Longbridge.CalendarContextTest do
           assert parsed.path_with_query =~ "date_end=2024-05-31"
 
           payload = Jason.encode!(%{code: 0, data: []})
-          :gen_tcp.send(socket, http_ok(payload))
+          ok(conn, payload)
         end)
 
       assert {:ok, _} =
@@ -86,11 +45,11 @@ defmodule Longbridge.CalendarContextTest do
 
     test "passes the :market option" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "markets=HK"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -105,10 +64,10 @@ defmodule Longbridge.CalendarContextTest do
   describe "dividend_dates/4" do
     test "queries with category=dividend" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=dividend"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -125,10 +84,10 @@ defmodule Longbridge.CalendarContextTest do
   describe "stock_splits/4" do
     test "queries with category=split" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=split"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -141,10 +100,10 @@ defmodule Longbridge.CalendarContextTest do
   describe "ipo_calendar/4" do
     test "queries with category=ipo" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=ipo"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -157,10 +116,10 @@ defmodule Longbridge.CalendarContextTest do
   describe "macro_events/4" do
     test "queries with category=macro" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=macrodata"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -173,14 +132,14 @@ defmodule Longbridge.CalendarContextTest do
   describe "market_closures/2" do
     test "queries with category=closed and today as the date range" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=closed"
           today = Date.to_iso8601(Date.utc_today())
           assert parsed.path_with_query =~ "date=#{today}"
           assert parsed.path_with_query =~ "date_end=#{today}"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} = CalendarContext.market_closures(config_with(server.port))
@@ -189,10 +148,10 @@ defmodule Longbridge.CalendarContextTest do
 
     test "passes the :market option" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "markets=US"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: []})))
+          ok(conn, Jason.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -203,9 +162,9 @@ defmodule Longbridge.CalendarContextTest do
 
     test "propagates API errors" do
       server =
-        start_fake_http_server(fn _request, socket ->
+        start_fake_http_server(fn conn ->
           payload = Jason.encode!(%{code: 403, message: "forbidden", data: nil})
-          :gen_tcp.send(socket, http_ok(payload))
+          ok(conn, payload)
         end)
 
       assert {:error, {:api_error, 403, "forbidden"}} =

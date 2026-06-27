@@ -3,54 +3,15 @@ defmodule Longbridge.PortfolioContextTest do
 
   alias Longbridge.PortfolioContext
 
-  defp start_fake_http_server(handler) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(listen)
+  alias Longbridge.TestSupport.FakeHTTPServer
 
-    pid =
-      spawn(fn ->
-        loop = fn loop ->
-          case :gen_tcp.accept(listen) do
-            {:ok, socket} ->
-              case :gen_tcp.recv(socket, 0, 5_000) do
-                {:ok, data} ->
-                  handler.(data, socket)
-                  :gen_tcp.close(socket)
+  defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-                _ ->
-                  :gen_tcp.close(socket)
-              end
+  defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-              loop.(loop)
+  defp parse_conn(conn), do: FakeHTTPServer.parse_conn(conn)
 
-            {:error, :closed} ->
-              :ok
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    Process.unlink(pid)
-
-    %{port: port, pid: pid, socket: listen}
-  end
-
-  defp stop_fake_http_server(%{socket: socket, pid: pid}) do
-    Process.exit(pid, :kill)
-    :gen_tcp.close(socket)
-  end
-
-  defp http_ok(body) do
-    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{byte_size(body)}\r\nConnection: close\r\n\r\n#{body}"
-  end
-
-  defp parse_request(request) do
-    [head, body] = String.split(request, "\r\n\r\n", parts: 2)
-    [request_line | _] = String.split(head, "\r\n", parts: 2)
-    [method, path_with_query, _] = String.split(request_line, " ", parts: 3)
-    %{method: method, path_with_query: path_with_query, body: body || ""}
-  end
+  defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
   defp config_with(port) do
     Longbridge.Config.new(
@@ -64,13 +25,13 @@ defmodule Longbridge.PortfolioContextTest do
   describe "exchange_rates/2" do
     test "queries the exchange rates endpoint without base_currency" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.method == "GET"
           assert parsed.path_with_query =~ "/v1/asset/exchange_rates"
           refute parsed.path_with_query =~ "base_currency"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: %{}})))
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.exchange_rates(config_with(server.port))
@@ -79,11 +40,11 @@ defmodule Longbridge.PortfolioContextTest do
 
     test "passes base_currency when provided" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "base_currency=USD"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: %{}})))
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.exchange_rates(config_with(server.port), "USD")
@@ -94,12 +55,12 @@ defmodule Longbridge.PortfolioContextTest do
   describe "portfolio_pl/2" do
     test "queries by-market endpoint" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/portfolio/profit-analysis/by-market"
           assert parsed.path_with_query =~ "market=HK"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: %{}})))
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.portfolio_pl(config_with(server.port), market: "HK")
@@ -110,13 +71,13 @@ defmodule Longbridge.PortfolioContextTest do
   describe "portfolio_positions/2" do
     test "queries the detail endpoint with date range" do
       server =
-        start_fake_http_server(fn request, socket ->
-          parsed = parse_request(request)
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/portfolio/profit-analysis/detail"
           assert parsed.path_with_query =~ "start_date=2024-05-01"
           assert parsed.path_with_query =~ "end_date=2024-05-31"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{code: 0, data: %{}})))
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -132,9 +93,9 @@ defmodule Longbridge.PortfolioContextTest do
   describe "error propagation" do
     test "all methods propagate API errors" do
       server =
-        start_fake_http_server(fn _request, socket ->
+        start_fake_http_server(fn conn ->
           payload = Jason.encode!(%{code: 403, message: "forbidden", data: nil})
-          :gen_tcp.send(socket, http_ok(payload))
+          ok(conn, payload)
         end)
 
       assert {:error, {:api_error, 403, "forbidden"}} =

@@ -124,6 +124,12 @@ defmodule Longbridge.HTTPClient do
   @spec request(atom(), String.t(), String.t(), Config.t(), keyword()) ::
           {:ok, term()} | {:error, term()}
   def request(method, path, body, %Config{} = config, opts \\ []) do
+    opts =
+      case Keyword.get(opts, :finch) || test_finch_override() do
+        nil -> opts
+        finch -> Keyword.put(opts, :finch, finch)
+      end
+
     case send_signed(method, path, body, config, opts) do
       {:error, {:token_expired, original_err}} ->
         retry_with_refresh(method, path, body, config, opts, original_err)
@@ -310,12 +316,26 @@ defmodule Longbridge.HTTPClient do
   @spec request_json(atom(), String.t(), String.t(), Config.t(), keyword()) ::
           {:ok, map() | list()} | {:error, term()}
   def request_json(method, path, body, %Config{} = config, opts \\ []) do
+    opts =
+      case Keyword.get(opts, :finch) || test_finch_override() do
+        nil -> opts
+        finch -> Keyword.put(opts, :finch, finch)
+      end
+
     case request(method, path, body, config, opts) do
       {:ok, %{"code" => 0, "data" => data}} -> {:ok, data}
       {:ok, %{"code" => code, "message" => msg}} -> {:error, {:api_error, code, msg}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc false
+  # Internal hook for tests: when a test sets a per-test Finch name
+  # via the test process dictionary, request/5 will use it instead
+  # of the shared Longbridge.Finch. Production code never sets this
+  # dictionary entry, so production behavior is unchanged.
+  @spec test_finch_override() :: term() | nil
+  def test_finch_override, do: Process.get(:longbridge_test_finch)
 
   @doc """
   Builds a URL query string from a keyword list.

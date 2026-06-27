@@ -11,6 +11,7 @@ defmodule Longbridge.MixProject do
       deps: deps(),
       docs: docs(),
       aliases: aliases(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       test_coverage: [summary: [threshold: 80], ignore_modules: ignore_modules()],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/project.plt"},
@@ -18,6 +19,9 @@ defmodule Longbridge.MixProject do
       ]
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
@@ -102,7 +106,8 @@ defmodule Longbridge.MixProject do
       {:mint, "~> 1.9"},
       {:mint_web_socket, "~> 1.0"},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      {:reach, "~> 2.7", only: [:dev, :test], runtime: false}
+      {:reach, "~> 2.7", only: [:dev, :test], runtime: false},
+      {:bandit, "~> 1.8", only: [:dev, :test]}
     ]
   end
 

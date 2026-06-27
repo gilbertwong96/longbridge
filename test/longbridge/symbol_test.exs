@@ -2,6 +2,7 @@ defmodule Longbridge.SymbolTest do
   use ExUnit.Case, async: false
 
   alias Longbridge.Symbol
+  alias Longbridge.TestSupport.FakeHTTPServer
 
   describe "to_counter_id/1 — stock symbols" do
     test "US stock" do
@@ -102,61 +103,13 @@ defmodule Longbridge.SymbolTest do
   end
 
   describe "resolve_counter_ids/2" do
-    defp start_fake_http_server(handler) do
-      {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-      {:ok, port} = :inet.port(listen)
+    defp start_fake_http_server(handler), do: FakeHTTPServer.start_with_finch(handler)
 
-      parent = self()
+    defp stop_fake_http_server(server), do: FakeHTTPServer.stop_with_finch(server)
 
-      pid =
-        spawn(fn ->
-          send(parent, {:ready, :ok})
+    defp parse_conn(conn), do: FakeHTTPServer.parse_conn(conn)
 
-          loop = fn loop ->
-            case :gen_tcp.accept(listen, 5_000) do
-              {:ok, socket} ->
-                case :gen_tcp.recv(socket, 0, 5_000) do
-                  {:ok, data} ->
-                    handler.(data, socket)
-                    :gen_tcp.close(socket)
-
-                  _ ->
-                    :gen_tcp.close(socket)
-                end
-
-                loop.(loop)
-
-              {:error, :timeout} ->
-                :ok
-
-              {:error, _} ->
-                :ok
-            end
-          end
-
-          loop.(loop)
-        end)
-
-      receive do
-        {:ready, :ok} -> :ok
-      after
-        2_000 -> raise "fake server failed to start"
-      end
-
-      %{port: port, pid: pid, socket: listen}
-    end
-
-    defp stop_fake_http_server(%{socket: socket, pid: pid}) do
-      Process.exit(pid, :kill)
-      :gen_tcp.close(socket)
-    end
-
-    defp http_ok(body) do
-      "HTTP/1.1 200 OK\r\n" <>
-        "Content-Type: application/json\r\n" <>
-        "Content-Length: #{byte_size(body)}\r\n" <>
-        "Connection: close\r\n\r\n" <> body
-    end
+    defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
     defp config_with(port) do
       Longbridge.Config.new(
@@ -178,14 +131,16 @@ defmodule Longbridge.SymbolTest do
     test "calls the server for unknown symbols and merges results" do
       # Use a fake symbol that's not in the directory.
       server =
-        start_fake_http_server(fn request, socket ->
-          assert request =~ "POST /v1/quote/symbol-to-counter-ids"
-          assert request =~ "ticker_regions"
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "POST"
+          assert parsed.path_with_query =~ "/v1/quote/symbol-to-counter-ids"
+          assert parsed.body =~ "ticker_regions"
 
           body =
             Jason.encode!(%{"code" => 0, "data" => %{"list" => %{"DRAM.US" => "ETF/US/DRAM"}}})
 
-          :gen_tcp.send(socket, http_ok(body))
+          ok(conn, body)
         end)
 
       assert {:ok, [%{symbol: "DRAM.US", counter_id: "ETF/US/DRAM"}]} =
@@ -198,9 +153,9 @@ defmodule Longbridge.SymbolTest do
       # BOGUS.XX is not in the directory and the server returns no list
       # entry for it. Falls back to ST/XX/BOGUS.
       server =
-        start_fake_http_server(fn _request, socket ->
+        start_fake_http_server(fn conn ->
           body = Jason.encode!(%{"code" => 0, "data" => %{"list" => %{}}})
-          :gen_tcp.send(socket, http_ok(body))
+          ok(conn, body)
         end)
 
       assert {:ok, [%{symbol: "BOGUS.XX", counter_id: "ST/XX/BOGUS"}]} =
