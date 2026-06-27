@@ -362,6 +362,16 @@ The context's caller must be alive to receive push messages — `Longbridge.Quot
 | `remove_symbols/3` | Remove symbols from a sharelist |
 | `delete/2` | Delete a sharelist |
 
+### `Longbridge.ScreenerContext` (HTTP)
+
+| Method | Description |
+| --- | --- |
+| `recommend_strategies/2` | Pre-defined recommended screener strategies for a market |
+| `user_strategies/2` | Current user's saved screener strategies |
+| `strategy/2` | A single screener strategy by ID (strips `filter_` prefix from `filter.filters[].key`) |
+| `search/3` | Run a screener search — Mode A (`strategy_id:`) or Mode B (typed `conditions:`) |
+| `indicators/1` | List available screener indicators (strips `filter_` prefix; builds `tech_values` from `tech_indicators`) |
+
 ### Push command codes (consumer-side)
 
 | Code | Message | Decode with |
