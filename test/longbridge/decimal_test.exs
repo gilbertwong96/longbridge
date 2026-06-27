@@ -57,7 +57,7 @@ defmodule Longbridge.DecimalTest do
     test "parses a numeric string when :decimal is loaded" do
       if decimal_loaded?() do
         result = Decimal.to_bigdecimal("3.14")
-        assert Decimal.to_string(result) == "3.14"
+        assert apply(Decimal, :to_string, [result]) == "3.14"
       else
         assert_raise ArgumentError, ~r/:decimal/, fn ->
           Decimal.to_bigdecimal("3.14")
@@ -70,7 +70,7 @@ defmodule Longbridge.DecimalTest do
     test "sums a list of strings" do
       if decimal_loaded?() do
         result = Decimal.sum_bigdecimal(["1.5", "2.5"])
-        assert Decimal.to_string(result) == "4.0"
+        assert apply(Decimal, :to_string, [result]) == "4.0"
       else
         assert_raise ArgumentError, ~r/:decimal/, fn ->
           Decimal.sum_bigdecimal(["1.5", "2.5"])
@@ -80,9 +80,9 @@ defmodule Longbridge.DecimalTest do
 
     test "treats nil and empty as zero" do
       if decimal_loaded?() do
-        assert Decimal.to_string(Decimal.sum_bigdecimal([nil, "", "1.0"])) == "1.0"
-        assert Decimal.to_string(Decimal.sum_bigdecimal([])) == "0"
-        assert Decimal.to_string(Decimal.sum_bigdecimal([nil, nil])) == "0"
+        assert apply(Decimal, :to_string, [Decimal.sum_bigdecimal([nil, "", "1.0"])]) == "1.0"
+        assert apply(Decimal, :to_string, [Decimal.sum_bigdecimal([])]) == "0"
+        assert apply(Decimal, :to_string, [Decimal.sum_bigdecimal([nil, nil])]) == "0"
       else
         assert_raise ArgumentError, fn ->
           Decimal.sum_bigdecimal(["1.0"])
@@ -93,7 +93,7 @@ defmodule Longbridge.DecimalTest do
     test "accepts mixed strings and numbers" do
       if decimal_loaded?() do
         result = Decimal.sum_bigdecimal(["1.5", 2, 0.5, nil, ""])
-        assert Decimal.to_string(result) == "4.0"
+        assert apply(Decimal, :to_string, [result]) == "4.0"
       end
     end
   end
