@@ -129,7 +129,10 @@ defmodule Longbridge.OAuth do
   end
 
   defp complete_authorization(client_id, code, redirect_uri, verifier, http_url, opts) do
-    case exchange_code(client_id, code, redirect_uri, verifier, http_url: http_url) do
+    case exchange_code(client_id, code, redirect_uri, verifier,
+           http_url: http_url,
+           finch: Keyword.get(opts, :finch, Longbridge.Finch)
+         ) do
       {:ok, token} -> persist_and_return(client_id, token, http_url, opts)
       {:error, _} = err -> err
     end
@@ -187,6 +190,7 @@ defmodule Longbridge.OAuth do
           {:ok, map()} | {:error, term()}
   def exchange_code(client_id, code, redirect_uri, code_verifier, opts \\ []) do
     http_url = Keyword.get(opts, :http_url, oauth_base_url(opts))
+    finch = Keyword.get(opts, :finch, Longbridge.Finch)
 
     body =
       URI.encode_query(%{
@@ -197,7 +201,7 @@ defmodule Longbridge.OAuth do
         code_verifier: code_verifier
       })
 
-    with {:ok, data} <- http_form_post(http_url <> @token_path, body) do
+    with {:ok, data} <- http_form_post(http_url <> @token_path, body, finch) do
       parse_token_response(data)
     end
   end
@@ -212,6 +216,7 @@ defmodule Longbridge.OAuth do
   def refresh_token(client_id, opts \\ []) do
     http_url = Keyword.get(opts, :http_url, oauth_base_url(opts))
     storage = resolve_storage(opts)
+    finch = Keyword.get(opts, :finch, Longbridge.Finch)
 
     with {:ok, refresh_token} <- read_refresh_token(client_id, storage) do
       body =
@@ -221,7 +226,7 @@ defmodule Longbridge.OAuth do
           refresh_token: refresh_token
         })
 
-      with {:ok, data} <- http_form_post(http_url <> @token_path, body) do
+      with {:ok, data} <- http_form_post(http_url <> @token_path, body, finch) do
         case parse_token_response(data) do
           {:ok, token} -> persist_and_return(client_id, token, http_url, opts)
           error -> error
@@ -247,6 +252,7 @@ defmodule Longbridge.OAuth do
   @spec register_client(keyword()) :: {:ok, String.t()} | {:error, term()}
   def register_client(opts \\ []) do
     http_url = Keyword.get(opts, :http_url, oauth_base_url(opts))
+    finch = Keyword.get(opts, :finch, Longbridge.Finch)
 
     body =
       Jason.encode!(%{
@@ -257,7 +263,7 @@ defmodule Longbridge.OAuth do
         response_types: ["code"]
       })
 
-    with {:ok, data} <- http_json_post(http_url <> @register_path, body) do
+    with {:ok, data} <- http_json_post(http_url <> @register_path, body, finch) do
       case Map.get(data, "client_id") do
         id when is_binary(id) and id != "" -> {:ok, id}
         _ -> {:error, {:missing_client_id, data}}
@@ -556,11 +562,11 @@ defmodule Longbridge.OAuth do
 
   # ── HTTP helpers (Finch, no signing) ───────────────────
 
-  defp http_form_post(url, body) do
+  defp http_form_post(url, body, finch) do
     headers = [{"content-type", "application/x-www-form-urlencoded"}]
     request = Finch.build(:post, url, headers, body)
 
-    case Finch.request(request, Longbridge.Finch, receive_timeout: 15_000) do
+    case Finch.request(request, finch, receive_timeout: 15_000) do
       {:ok, %Finch.Response{status: status, body: resp_body}} when status in 200..299 ->
         case Jason.decode(resp_body) do
           {:ok, parsed} -> {:ok, parsed}
@@ -569,8 +575,7 @@ defmodule Longbridge.OAuth do
 
       {:ok, %Finch.Response{status: status, body: resp_body}} ->
         case Jason.decode(resp_body) do
-          {:ok, %{"error" => err} = data} -> {:error, {:oauth_error, err, data}}
-          {:ok, data} -> {:error, {:http_status, status, data}}
+          {:ok, data} -> parse_token_response(data)
           {:error, _} -> {:error, {:http_status, status, resp_body}}
         end
 
@@ -579,11 +584,11 @@ defmodule Longbridge.OAuth do
     end
   end
 
-  defp http_json_post(url, body) do
+  defp http_json_post(url, body, finch) do
     headers = [{"content-type", "application/json"}]
     request = Finch.build(:post, url, headers, body)
 
-    case Finch.request(request, Longbridge.Finch, receive_timeout: 15_000) do
+    case Finch.request(request, finch, receive_timeout: 15_000) do
       {:ok, %Finch.Response{status: status, body: resp_body}} when status in 200..299 ->
         Jason.decode(resp_body)
 

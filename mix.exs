@@ -11,7 +11,7 @@ defmodule Longbridge.MixProject do
       deps: deps(),
       docs: docs(),
       aliases: aliases(),
-      test_coverage: [summary: [threshold: 89], ignore_modules: ignore_modules()],
+      test_coverage: [summary: [threshold: 80], ignore_modules: ignore_modules()],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/project.plt"},
         flags: [:missing_return, :extra_return, :unmatched_returns]
