@@ -272,18 +272,54 @@ defmodule Longbridge.OAuth do
   The token file must have been written by a previous `authorize/2`
   call (e.g. on a developer's workstation).
 
-  If the access token is expired, attempts a refresh via the
-  stored `refresh_token` before returning.
+  If the access token is expired (or within `:refresh_skew` seconds
+  of expiry), attempts a refresh via the stored `refresh_token`
+  before returning.
+
+  ## Options
+
+    * `:storage` — A `Longbridge.OAuth.TokenStorage` implementation
+      (default `Longbridge.OAuth.FileTokenStorage`).
+    * `:refresh_skew` — Seconds before expiry to proactively refresh.
+      Default `0` (only refresh after expiry). Set to e.g. `300`
+      to refresh 5 minutes early.
+    * `:http_url` — Override the OAuth base URL.
+
+  ## Error cases
+
+    * `{:error, :not_found}` — No token persisted for this client_id.
+    * `{:error, {:refresh_failed, reason}}` — Refresh attempted but
+      failed for a non-OAuth reason (e.g. network error).
+    * `{:error, {:refresh_token_revoked, error, description}}` —
+      The refresh_token was rejected by the OAuth server
+      (`invalid_grant` or similar). User must re-authorize.
   """
-  @spec load_token(String.t(), keyword()) :: {:ok, Config.t()} | {:error, term()}
+  @spec load_token(String.t(), keyword()) ::
+          {:ok, Config.t()}
+          | {:error,
+             :not_found
+             | {:refresh_failed, term()}
+             | {:refresh_token_revoked, String.t(), String.t() | nil}}
   def load_token(client_id, opts \\ []) do
     storage = resolve_storage(opts)
 
     with {:ok, token} <- storage.load(client_id) do
       config = config_from_token(client_id, token)
 
-      if token_expired?(token) do
-        refresh_token(client_id, opts)
+      if token_expired?(token, opts) do
+        case refresh_token(client_id, opts) do
+          {:ok, _} = ok ->
+            ok
+
+          {:error, :no_refresh_token} ->
+            {:error, {:refresh_failed, :no_refresh_token}}
+
+          {:error, {:oauth_error, error, description}} ->
+            {:error, {:refresh_token_revoked, error, description}}
+
+          {:error, reason} ->
+            {:error, {:refresh_failed, reason}}
+        end
       else
         {:ok, config}
       end
@@ -487,10 +523,16 @@ defmodule Longbridge.OAuth do
     end
   end
 
-  defp token_expired?(%{expires_at: nil}), do: false
+  defp token_expired?(token, opts) do
+    skew = Keyword.get(opts, :refresh_skew, 0)
 
-  defp token_expired?(%{expires_at: expires_at}) do
-    expires_at <= System.system_time(:second)
+    case token do
+      %{expires_at: nil} ->
+        false
+
+      %{expires_at: expires_at} ->
+        expires_at <= System.system_time(:second) + skew
+    end
   end
 
   defp config_from_token(_client_id, token) do

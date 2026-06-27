@@ -317,4 +317,187 @@ defmodule Longbridge.OAuthTest do
                OAuth.load_token("never-saved-#{System.unique_integer([:positive])}")
     end
   end
+
+  # ── load_token refresh edge cases ───────────────────────
+
+  describe "load_token refresh behavior" do
+    alias Longbridge.OAuth.InMemoryTokenStorage
+
+    setup do
+      :ok = InMemoryTokenStorage.reset()
+      on_exit(fn -> :ok = InMemoryTokenStorage.reset() end)
+      :ok
+    end
+
+    test "does not call the network when the token is not expired" do
+      token = %{
+        access_token: "still-valid",
+        refresh_token: "refresh-tok",
+        expires_at: System.system_time(:second) + 3600
+      }
+
+      :ok = InMemoryTokenStorage.save("client-fresh", token)
+
+      assert {:ok, %Config{token: "still-valid"}} =
+               OAuth.load_token("client-fresh", storage: InMemoryTokenStorage)
+    end
+
+    test "does not call the network when the token is not expired but within refresh_skew" do
+      token = %{
+        access_token: "still-valid",
+        refresh_token: "refresh-tok",
+        expires_at: System.system_time(:second) + 30
+      }
+
+      :ok = InMemoryTokenStorage.save("client-skewed", token)
+
+      # Without refresh_skew: 30 seconds remaining → no refresh
+      assert {:ok, %Config{token: "still-valid"}} =
+               OAuth.load_token("client-skewed", storage: InMemoryTokenStorage)
+
+      # With refresh_skew: 60 > 30 → refresh is attempted. The fake
+      # refresh_token "refresh-tok" is not a real OAuth token, so
+      # the server rejects it with invalid_grant. The important
+      # behaviour is that load_token now returns a wrapped error
+      # distinguishing "refresh failed" from "no token file".
+      assert {:error, {:refresh_token_revoked, "invalid_grant", _}} =
+               OAuth.load_token("client-skewed",
+                 storage: InMemoryTokenStorage,
+                 refresh_skew: 60
+               )
+    end
+
+    test "wraps :no_refresh_token error as :refresh_failed/:no_refresh_token" do
+      token = %{
+        access_token: "expired-no-refresh",
+        refresh_token: nil,
+        expires_at: System.system_time(:second) - 60
+      }
+
+      :ok = InMemoryTokenStorage.save("client-no-refresh", token)
+
+      assert {:error, {:refresh_failed, :no_refresh_token}} =
+               OAuth.load_token("client-no-refresh", storage: InMemoryTokenStorage)
+    end
+
+    test "treats expires_at: nil as not needing refresh" do
+      token = %{
+        access_token: "no-expiry",
+        refresh_token: "refresh-tok",
+        expires_at: nil
+      }
+
+      :ok = InMemoryTokenStorage.save("client-no-expiry", token)
+
+      assert {:ok, %Config{token: "no-expiry"}} =
+               OAuth.load_token("client-no-expiry", storage: InMemoryTokenStorage)
+    end
+
+    test "load_token wraps server-side invalid_grant as :refresh_token_revoked" do
+      expired = %{
+        access_token: "old-tok",
+        refresh_token: "stale-refresh",
+        expires_at: System.system_time(:second) - 60
+      }
+
+      :ok = InMemoryTokenStorage.save("client-revoked", expired)
+
+      server =
+        start_oauth_fake_http(fn _request_line ->
+          # Pretend the server rejected the refresh token.
+          oauth_json_response(400, %{
+            "error" => "invalid_grant",
+            "error_description" => "refresh token has been revoked"
+          })
+        end)
+
+      on_exit(fn -> stop_oauth_fake_http(server) end)
+
+      oauth_url = "http://127.0.0.1:#{server.port}"
+
+      assert {:error, {:refresh_token_revoked, "invalid_grant", _}} =
+               OAuth.load_token("client-revoked",
+                 storage: InMemoryTokenStorage,
+                 http_url: oauth_url
+               )
+    end
+  end
+
+  # ── Fake HTTP server helpers for OAuth tests ──────────────
+
+  defp start_oauth_fake_http(handler) do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(listen)
+
+    parent = self()
+    ready_ref = make_ref()
+
+    pid =
+      spawn(fn ->
+        send(parent, {ready_ref, :ready})
+
+        loop = fn loop ->
+          case :gen_tcp.accept(listen) do
+            {:ok, socket} ->
+              {:ok, request} = recv_headers(socket)
+              response = handler.(parse_request_line(request))
+              :ok = :gen_tcp.send(socket, response)
+              :ok = :gen_tcp.close(socket)
+              loop.(loop)
+
+            {:error, :closed} ->
+              :ok
+          end
+        end
+
+        loop.(loop)
+      end)
+
+    receive do
+      {^ready_ref, :ready} -> :ok
+    after
+      5_000 -> raise "fake HTTP server failed to start"
+    end
+
+    %{port: port, pid: pid, socket: listen}
+  end
+
+  defp stop_oauth_fake_http(%{socket: socket, pid: pid}) do
+    Process.exit(pid, :kill)
+    :gen_tcp.close(socket)
+  end
+
+  defp recv_headers(socket) do
+    do_recv_headers(socket, "")
+  end
+
+  defp do_recv_headers(socket, acc) do
+    case :gen_tcp.recv(socket, 0, 5_000) do
+      {:ok, chunk} ->
+        acc = acc <> chunk
+
+        case :binary.match(acc, "\r\n\r\n") do
+          {pos, _} -> {:ok, binary_part(acc, 0, pos + 4)}
+          :nomatch -> do_recv_headers(socket, acc)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_request_line(request) do
+    [line | _] = String.split(request, "\r\n", parts: 2)
+    %{method: hd(String.split(line, " ", parts: 3)), path: Enum.at(String.split(line, " "), 1)}
+  end
+
+  defp oauth_json_response(status, body) do
+    encoded = Jason.encode!(body)
+    status_text = if status == 200, do: "OK", else: "Bad Request"
+
+    "HTTP/1.1 #{status} #{status_text}\r\n" <>
+      "Content-Type: application/json\r\n" <>
+      "Content-Length: #{byte_size(encoded)}\r\n" <>
+      "Connection: close\r\n\r\n" <> encoded
+  end
 end
