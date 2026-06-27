@@ -215,6 +215,80 @@ defmodule Longbridge.QuoteHTTPContextTest do
     end
   end
 
+  describe "security_list/2" do
+    test "queries the security list endpoint with market and category" do
+      response = %{
+        "list" => [
+          %{"symbol" => "TSLA.US", "name_en" => "Tesla", "name_cn" => "特斯拉"},
+          %{"symbol" => "NVDA.US", "name_en" => "NVIDIA", "name_cn" => "英伟达"}
+        ]
+      }
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/get_security_list"
+          assert request =~ "market=US"
+          assert request =~ "category=Overnight"
+
+          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok,
+              [
+                %{"symbol" => "TSLA.US", "name_en" => "Tesla"},
+                %{"symbol" => "NVDA.US", "name_en" => "NVIDIA"}
+              ]} =
+               QuoteHTTPContext.security_list(config_with(server.port),
+                 market: "US",
+                 category: "Overnight"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts page and count for pagination" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "page=2"
+          assert request =~ "count=100"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+          )
+        end)
+
+      assert {:ok, _} =
+               QuoteHTTPContext.security_list(config_with(server.port),
+                 market: "HK",
+                 category: "Overnight",
+                 page: 2,
+                 count: 100
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts a flat list response" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload =
+            Jason.encode!(%{"code" => 0, "data" => [%{"symbol" => "TSLA.US"}]})
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, [%{"symbol" => "TSLA.US"}]} =
+               QuoteHTTPContext.security_list(config_with(server.port),
+                 market: "US",
+                 category: "Overnight"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
+
   describe "update_pinned/4" do
     test "POSTs the pin request and returns :ok on success" do
       server =

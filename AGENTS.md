@@ -21,6 +21,8 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.HTTPClient` | Signed HTTP requests via `Longbridge.Finch`. Used by all HTTP-only contexts. |
 | `Longbridge.MarketContext` | Market status, broker holdings, indices, anomaly alerts. HTTP-only. |
 | `Longbridge.OAuth` | OAuth 2.0 Authorization Code flow with PKCE. Browser flow and headless server flow. |
+| `Longbridge.OAuth.TokenStorage` | Behaviour for plugging custom OAuth token storage backends (Redis, Vault, in-memory, etc.). Mirrors `TokenStorage` trait from `longbridge/openapi` Rust SDK (added 4.2.0). |
+| `Longbridge.OAuth.FileTokenStorage` | Default file-based `TokenStorage` impl. Writes JSON to `~/.longbridge/openapi/tokens/<client_id>`. |
 | `Longbridge.PortfolioContext` | Exchange rates and portfolio P&L analysis. HTTP-only. |
 | `Longbridge.Protocol` | Wire-format constants + `pack/2` / `unpack/1` for whole packets. |
 | `Longbridge.Protocol.Header` | Per-packet header encode/decode (request / response / push layouts). |

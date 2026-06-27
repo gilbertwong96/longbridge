@@ -50,6 +50,7 @@ defmodule Longbridge.OAuth do
   """
 
   alias Longbridge.Config
+  alias Longbridge.OAuth.FileTokenStorage
 
   @oauth_base_url "https://openapi.longbridge.com"
   @oauth_base_url_cn "https://openapi.longbridge.cn"
@@ -100,6 +101,9 @@ defmodule Longbridge.OAuth do
     (default: `&open_browser/1`). Tests can pass a no-op.
   - `:timeout` — How long to wait for the user to approve
     (default 5 minutes).
+  - `:storage` — Custom `Longbridge.OAuth.TokenStorage` implementation.
+    Defaults to `Longbridge.OAuth.FileTokenStorage` (writes to
+    `~/.longbridge/openapi/tokens/<client_id>`).
   """
   @spec authorize(String.t(), keyword()) ::
           {:ok, Config.t()} | {:error, term()}
@@ -120,13 +124,13 @@ defmodule Longbridge.OAuth do
     with {:ok, _port, _pid} <- start_callback_server(callback_port, timeout),
          :ok <- Keyword.get(opts, :open_url_fn, &open_browser/1).(url),
          {:ok, code} <- await_callback(state, timeout) do
-      complete_authorization(client_id, code, redirect_uri, verifier, http_url)
+      complete_authorization(client_id, code, redirect_uri, verifier, http_url, opts)
     end
   end
 
-  defp complete_authorization(client_id, code, redirect_uri, verifier, http_url) do
+  defp complete_authorization(client_id, code, redirect_uri, verifier, http_url, opts) do
     case exchange_code(client_id, code, redirect_uri, verifier, http_url: http_url) do
-      {:ok, token} -> persist_and_return(client_id, token, http_url)
+      {:ok, token} -> persist_and_return(client_id, token, http_url, opts)
       {:error, _} = err -> err
     end
   end
@@ -207,8 +211,9 @@ defmodule Longbridge.OAuth do
   @spec refresh_token(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def refresh_token(client_id, opts \\ []) do
     http_url = Keyword.get(opts, :http_url, oauth_base_url(opts))
+    storage = resolve_storage(opts)
 
-    with {:ok, refresh_token} <- read_refresh_token(client_id) do
+    with {:ok, refresh_token} <- read_refresh_token(client_id, storage) do
       body =
         URI.encode_query(%{
           grant_type: "refresh_token",
@@ -218,7 +223,7 @@ defmodule Longbridge.OAuth do
 
       with {:ok, data} <- http_form_post(http_url <> @token_path, body) do
         case parse_token_response(data) do
-          {:ok, token} -> persist_and_return(client_id, token, http_url)
+          {:ok, token} -> persist_and_return(client_id, token, http_url, opts)
           error -> error
         end
       end
@@ -270,13 +275,15 @@ defmodule Longbridge.OAuth do
   If the access token is expired, attempts a refresh via the
   stored `refresh_token` before returning.
   """
-  @spec load_token(String.t()) :: {:ok, Config.t()} | {:error, term()}
-  def load_token(client_id) do
-    with {:ok, token} <- load_token_from_disk(client_id) do
+  @spec load_token(String.t(), keyword()) :: {:ok, Config.t()} | {:error, term()}
+  def load_token(client_id, opts \\ []) do
+    storage = resolve_storage(opts)
+
+    with {:ok, token} <- storage.load(client_id) do
       config = config_from_token(client_id, token)
 
       if token_expired?(token) do
-        refresh_token(client_id)
+        refresh_token(client_id, opts)
       else
         {:ok, config}
       end
@@ -291,9 +298,11 @@ defmodule Longbridge.OAuth do
 
   Returns `{:ok, token_map}` or `{:error, reason}`.
   """
-  @spec export_token(String.t()) :: {:ok, map()} | {:error, term()}
-  def export_token(client_id) do
-    with {:ok, token} <- load_token_from_disk(client_id) do
+  @spec export_token(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def export_token(client_id, opts \\ []) do
+    storage = resolve_storage(opts)
+
+    with {:ok, token} <- storage.load(client_id) do
       {:ok, Map.put(token, :client_id, client_id)}
     end
   end
@@ -321,12 +330,6 @@ defmodule Longbridge.OAuth do
   end
 
   # ── Internal helpers ────────────────────────────────────
-
-  @doc false
-  @spec token_path(String.t()) :: String.t()
-  def token_path(client_id) do
-    Path.join([System.user_home!(), ".longbridge", "openapi", "tokens", client_id])
-  end
 
   defp oauth_base_url(opts) do
     cond do
@@ -455,59 +458,32 @@ defmodule Longbridge.OAuth do
 
   # ── Token persistence ──────────────────────────────────
 
-  defp load_token_from_disk(client_id) do
-    path = token_path(client_id)
-
-    with {:ok, content} <- File.read(path),
-         {:ok, %{"access_token" => token} = data} <- Jason.decode(content) do
-      {:ok,
-       %{
-         access_token: token,
-         refresh_token: Map.get(data, "refresh_token"),
-         expires_at: Map.get(data, "expires_at"),
-         token_type: Map.get(data, "token_type", "Bearer"),
-         scope: Map.get(data, "scope"),
-         user_id: Map.get(data, "user_id"),
-         sub_accounts: Map.get(data, "sub_accounts"),
-         http_url: Map.get(data, "http_url")
-       }}
-    else
-      {:error, :enoent} -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
-      {:ok, _} -> {:error, :invalid_token_data}
-    end
+  # Resolves the storage backend from `opts`. Falls back to
+  # `Longbridge.OAuth.FileTokenStorage` when no `:storage` option is
+  # given. Users can pass any module implementing the
+  # `Longbridge.OAuth.TokenStorage` behaviour to plug in their own
+  # backend (Redis, Vault, KMS, in-memory cache for tests, etc.).
+  defp resolve_storage(opts) do
+    Keyword.get(opts, :storage, FileTokenStorage)
   end
 
-  defp save_token(client_id, token) do
-    path = token_path(client_id)
-    File.mkdir_p!(Path.dirname(path))
+  # Backwards-compatible path helper. Kept as `token_path/1` because
+  # it was previously a public function and may be used externally.
+  # Delegates to `FileTokenStorage.token_path/1`, which is the
+  # canonical accessor for the on-disk path.
+  @doc false
+  defdelegate token_path(client_id), to: FileTokenStorage
 
-    json =
-      Jason.encode!(%{
-        access_token: token.access_token,
-        refresh_token: token.refresh_token,
-        expires_at: token.expires_at,
-        token_type: token.token_type,
-        scope: token[:scope],
-        user_id: token[:user_id],
-        sub_accounts: token[:sub_accounts],
-        http_url: token[:http_url]
-      })
-
-    File.write!(path, json)
-    :ok
-  end
-
-  defp read_refresh_token(client_id) do
-    case load_token_from_disk(client_id) do
+  defp read_refresh_token(client_id, storage) do
+    case storage.load(client_id) do
       {:ok, %{refresh_token: refresh_token}} when is_binary(refresh_token) ->
         {:ok, refresh_token}
 
       {:ok, _} ->
         {:error, :no_refresh_token}
 
-      error ->
-        error
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -529,9 +505,10 @@ defmodule Longbridge.OAuth do
     )
   end
 
-  defp persist_and_return(client_id, token, http_url) do
+  defp persist_and_return(client_id, token, http_url, opts) do
+    storage = resolve_storage(opts)
     token = Map.put(token, :http_url, http_url)
-    :ok = save_token(client_id, token)
+    :ok = storage.save(client_id, token)
     {:ok, config_from_token(client_id, token)}
   end
 

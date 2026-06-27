@@ -225,4 +225,96 @@ defmodule Longbridge.OAuthTest do
 
     File.write!(path, json)
   end
+
+  # ── Custom storage backend ──────────────────────────────
+
+  defmodule InMemoryStorage do
+    @moduledoc false
+    @behaviour Longbridge.OAuth.TokenStorage
+
+    @table :test_oauth_storage
+
+    def start_link do
+      :ets.new(@table, [:set, :public, :named_table])
+      :ok
+    end
+
+    def stop do
+      try do
+        :ets.delete(@table)
+      rescue
+        ArgumentError -> :ok
+      end
+
+      :ok
+    end
+
+    @impl true
+    def load(client_id) do
+      case :ets.lookup(@table, client_id) do
+        [{^client_id, token}] -> {:ok, token}
+        [] -> {:error, :not_found}
+      end
+    end
+
+    @impl true
+    def save(client_id, token) do
+      :ets.insert(@table, {client_id, token})
+      :ok
+    end
+  end
+
+  describe "custom :storage option" do
+    setup do
+      InMemoryStorage.start_link()
+      on_exit(fn -> InMemoryStorage.stop() end)
+      :ok
+    end
+
+    test "load_token/2 reads from the custom storage" do
+      token = %{
+        access_token: "mem-tok",
+        refresh_token: "mem-refresh",
+        expires_at: 1_900_000_000,
+        token_type: "Bearer",
+        http_url: "https://openapi.longbridge.com"
+      }
+
+      :ok = InMemoryStorage.save("client-mem-1", token)
+
+      assert {:ok, %Config{} = config} =
+               OAuth.load_token("client-mem-1", storage: InMemoryStorage)
+
+      assert config.token == "mem-tok"
+      assert config.expired_at == 1_900_000_000
+    end
+
+    test "export_token/2 reads from the custom storage" do
+      token = %{
+        access_token: "mem-tok-2",
+        refresh_token: nil,
+        expires_at: nil,
+        token_type: "Bearer",
+        http_url: "https://openapi.longbridge.com"
+      }
+
+      :ok = InMemoryStorage.save("client-mem-2", token)
+
+      assert {:ok, exported} = OAuth.export_token("client-mem-2", storage: InMemoryStorage)
+      assert exported.access_token == "mem-tok-2"
+      assert exported.client_id == "client-mem-2"
+    end
+
+    test "load_token/2 returns :not_found when the custom storage has no entry" do
+      assert {:error, :not_found} = OAuth.load_token("missing", storage: InMemoryStorage)
+      assert {:error, :not_found} = OAuth.export_token("missing", storage: InMemoryStorage)
+    end
+
+    test "default storage is FileTokenStorage when no option is passed" do
+      # Just smoke-test that the default storage path is reachable.
+      # We don't write anything (to avoid polluting ~/.longbridge).
+      assert {:error, :not_found} =
+               OAuth.load_token("never-saved-#{System.unique_integer([:positive])}")
+    end
+  end
 end

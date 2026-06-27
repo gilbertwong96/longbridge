@@ -25,6 +25,7 @@ defmodule Longbridge.QuoteHTTPContext do
   @option_volume_path "/v1/quote/option-volume"
   @option_volume_daily_path "/v1/quote/option-volume-daily"
   @watchlist_pinned_path "/v1/quote/watchlist/pinned"
+  @security_list_path "/v1/quote/get_security_list"
 
   @doc """
   Returns short interest data for a symbol.
@@ -77,6 +78,33 @@ defmodule Longbridge.QuoteHTTPContext do
     case HTTPClient.request_json(:get, @option_volume_daily_path, "", config, params: params) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, _other} -> {:ok, []}
+      error -> error
+    end
+  end
+
+  @doc """
+  Lists securities available for a given market on Longbridge.
+
+  Endpoint: `GET /v1/quote/get_security_list`
+
+  ## Options
+
+    * `:market` — `"US" | "HK" | "CN" | "SG"`. Required.
+    * `:category` — market subcategory. Currently only `"Overnight"`
+      is documented.
+    * `:page` — page number, default 1.
+    * `:count` — records per page, default 50.
+
+  Each entry has `symbol`, `name_cn`, `name_hk`, `name_en`.
+  """
+  @spec security_list(Config.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  def security_list(%Config{} = config, opts) do
+    params = HTTPClient.build_query(opts)
+
+    case HTTPClient.request_json(:get, @security_list_path, "", config, params: params) do
+      {:ok, items} when is_list(items) -> {:ok, items}
+      {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
+      {:ok, _} -> {:ok, []}
       error -> error
     end
   end
