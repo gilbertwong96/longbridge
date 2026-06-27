@@ -312,6 +312,11 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 | `option_chain_strike_info/3` | `QueryOptionChainDateStrikeInfo` (21) | |
 | `warrant_issuer_info/1` | `QueryWarrantIssuerInfo` (22) | |
 | `warrant_list/2` | `QueryWarrantFilterList` (23) | Filtered HK warrant list. Options: `:symbol`, `:language`, `:sort_by`, `:sort_order`, `:type`, `:expiry_date`, `:status`, `:price_type`, `:issuer`. |
+| `realtime_quote/2` | (cache) | Returns cached `PushQuote` for symbols from local push-data store. |
+| `realtime_depth/2` | (cache) | Returns cached `PushDepth` for a symbol. |
+| `realtime_brokers/2` | (cache) | Returns cached `PushBrokers` for a symbol. |
+| `realtime_trades/3` | (cache) | Returns up to `count` cached trades (cap 500). |
+| `reset_realtime_cache/1` | (cache) | Clears the local push-data cache. |
 | `market_trade_period/1` | `QueryMarketTradePeriod` (8) | |
 | `market_trade_day/4` | `QueryMarketTradeDay` (9) | |
 | `calc_index/3` | `QuerySecurityCalcIndex` (26) | `calc_indexes` is a list of `CalcIndex` atoms. |
