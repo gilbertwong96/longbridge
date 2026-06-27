@@ -29,6 +29,7 @@ defmodule Longbridge.FundamentalContext do
   alias Longbridge.{Config, HTTPClient, Symbol}
 
   @etf_asset_allocation_path "/v1/quote/etf-asset-allocation"
+  @filings_path "/v1/quote/filings"
   @macroeconomic_indicators_path "/v2/quote/macrodata"
   @macroeconomic_path_prefix "/v2/quote/macrodata/"
 
@@ -40,6 +41,21 @@ defmodule Longbridge.FundamentalContext do
     japan: "JP",
     singapore: "SG"
   }
+
+  @doc """
+  Lists regulatory filings (e.g. SEC 10-K, 10-Q, insider trading
+  forms) for a symbol.
+
+  Endpoint: `GET /v1/quote/filings?symbol=...`
+
+  The response includes an `items` array, each with `id`, `title`,
+  `description`, `file_name`, `file_urls`, and `publish_at`
+  (Unix timestamp, seconds).
+  """
+  @spec filings(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def filings(%Config{} = config, symbol) do
+    HTTPClient.request_json(:get, @filings_path, "", config, params: "symbol=#{symbol}")
+  end
 
   @doc """
   Returns ETF asset allocation (holdings, regional, asset class,

@@ -57,6 +57,7 @@ defmodule Longbridge.QuoteContext do
   @cmd_capital_flow_intraday 24
   @cmd_capital_flow_distribution 25
   @cmd_security_calc_index 26
+  @cmd_history_candlestick 27
 
   @sub_type_map %{
     QUOTE: 1,
@@ -209,6 +210,113 @@ defmodule Longbridge.QuoteContext do
     }
 
     request(pid, @cmd_candlestick, req, Q.SecurityCandlestickResponse)
+  end
+
+  @doc """
+  Queries historical candlesticks for a symbol, walking forward or
+  backward from a specific date and time.
+
+  Endpoint: cmd_code 27 (`QueryHistoryCandlestick`) with
+  `query_type = QUERY_BY_OFFSET`.
+
+  ## Options
+
+    * `:period` — `:MIN_1 | :MIN_5 | :MIN_15 | :MIN_30 | :MIN_60 |
+      :DAY | :WEEK | :MONTH | :YEAR | :QUARTER`. Required.
+    * `:adjust_type` — `0` (no adjust) or `1` (forward adjust).
+      Required.
+    * `:direction` — `:forward` (from offset toward latest data)
+      or `:backward` (from offset toward historical data).
+      Required.
+    * `:date` — date string `"YYYY-MM-DD"` for the offset anchor.
+      Required.
+    * `:minute` — minute string `"HH:MM"` (intraday periods only).
+      Optional.
+    * `:count` — non_neg_integer count. Required.
+    * `:trade_session` — `0` (regular session) or `1` (all sessions).
+      Optional.
+
+  Mirrors `HistoryCandlesticksByOffset` in `longbridge/openapi-go`
+  and `QuoteContext::history_candlesticks_by_offset` in
+  `longbridge/openapi/rust`.
+  """
+  @spec history_candlesticks_by_offset(pid(), String.t(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def history_candlesticks_by_offset(pid, symbol, opts) do
+    period = Keyword.fetch!(opts, :period)
+    adjust_type = Keyword.fetch!(opts, :adjust_type)
+    direction = Keyword.fetch!(opts, :direction)
+    date = Keyword.fetch!(opts, :date)
+    count = Keyword.fetch!(opts, :count)
+
+    direction_val =
+      case direction do
+        :forward -> 1
+        :backward -> 0
+        v when v in [0, 1] -> v
+      end
+
+    offset_query = %Q.SecurityHistoryCandlestickRequest.OffsetQuery{
+      direction: direction_val,
+      date: date,
+      minute: Keyword.get(opts, :minute, ""),
+      count: count
+    }
+
+    req = %Q.SecurityHistoryCandlestickRequest{
+      symbol: symbol,
+      period: period_code(period),
+      adjust_type: adjust_type,
+      query_type: 1,
+      offset_request: offset_query,
+      trade_session: Keyword.get(opts, :trade_session, 0)
+    }
+
+    request(pid, @cmd_history_candlestick, req, Q.SecurityCandlestickResponse)
+  end
+
+  @doc """
+  Queries historical candlesticks for a symbol within a date range.
+
+  Endpoint: cmd_code 27 (`QueryHistoryCandlestick`) with
+  `query_type = QUERY_BY_DATE`.
+
+  ## Options
+
+    * `:period` — `:MIN_1 | :MIN_5 | :MIN_15 | :MIN_30 | :MIN_60 |
+      :DAY | :WEEK | :MONTH | :YEAR | :QUARTER`. Required.
+    * `:adjust_type` — `0` (no adjust) or `1` (forward adjust).
+      Required.
+    * `:start_date` — `"YYYY-MM-DD"` string. Required.
+    * `:end_date` — `"YYYY-MM-DD"` string. Required.
+    * `:trade_session` — `0` (regular session) or `1` (all sessions).
+      Optional.
+
+  Mirrors `HistoryCandlesticksByDate` in `longbridge/openapi-go`.
+  """
+  @spec history_candlesticks_by_date(pid(), String.t(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def history_candlesticks_by_date(pid, symbol, opts) do
+    period = Keyword.fetch!(opts, :period)
+    adjust_type = Keyword.fetch!(opts, :adjust_type)
+    start_date = Keyword.fetch!(opts, :start_date)
+    end_date = Keyword.fetch!(opts, :end_date)
+
+    date_query = %Q.SecurityHistoryCandlestickRequest.DateQuery{
+      start_date: start_date,
+      end_date: end_date
+    }
+
+    req = %Q.SecurityHistoryCandlestickRequest{
+      symbol: symbol,
+      period: period_code(period),
+      adjust_type: adjust_type,
+      query_type: 2,
+      date_request: date_query,
+      trade_session: Keyword.get(opts, :trade_session, 0)
+    }
+
+    request(pid, @cmd_history_candlestick, req, Q.SecurityCandlestickResponse)
   end
 
   @doc "Queries option chain expiry dates for an underlying."

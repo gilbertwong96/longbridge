@@ -101,6 +101,124 @@ defmodule Longbridge.SymbolTest do
     end
   end
 
+  describe "resolve_counter_ids/2" do
+    defp start_fake_http_server(handler) do
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+      {:ok, port} = :inet.port(listen)
+
+      parent = self()
+
+      pid =
+        spawn(fn ->
+          send(parent, {:ready, :ok})
+
+          loop = fn loop ->
+            case :gen_tcp.accept(listen, 5_000) do
+              {:ok, socket} ->
+                case :gen_tcp.recv(socket, 0, 5_000) do
+                  {:ok, data} ->
+                    handler.(data, socket)
+                    :gen_tcp.close(socket)
+
+                  _ ->
+                    :gen_tcp.close(socket)
+                end
+
+                loop.(loop)
+
+              {:error, :timeout} ->
+                :ok
+
+              {:error, _} ->
+                :ok
+            end
+          end
+
+          loop.(loop)
+        end)
+
+      receive do
+        {:ready, :ok} -> :ok
+      after
+        2_000 -> raise "fake server failed to start"
+      end
+
+      %{port: port, pid: pid, socket: listen}
+    end
+
+    defp stop_fake_http_server(%{socket: socket, pid: pid}) do
+      Process.exit(pid, :kill)
+      :gen_tcp.close(socket)
+    end
+
+    defp http_ok(body) do
+      "HTTP/1.1 200 OK\r\n" <>
+        "Content-Type: application/json\r\n" <>
+        "Content-Length: #{byte_size(body)}\r\n" <>
+        "Connection: close\r\n\r\n" <> body
+    end
+
+    defp config_with(port) do
+      Longbridge.Config.new(
+        token: "test-token",
+        app_key: "test-key",
+        app_secret: "test-secret",
+        http_url: "http://127.0.0.1:#{port}"
+      )
+    end
+
+    test "returns local results for known symbols without hitting the server" do
+      # SPY.US is in the embedded ETF directory.
+      assert {:ok,
+              [
+                %{symbol: "SPY.US", counter_id: "ETF/US/SPY"}
+              ]} = Symbol.resolve_counter_ids(%Longbridge.Config{}, ["SPY.US"])
+    end
+
+    test "calls the server for unknown symbols and merges results" do
+      # Use a fake symbol that's not in the directory.
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "POST /v1/quote/symbol-to-counter-ids"
+          assert request =~ "ticker_regions"
+
+          body =
+            Jason.encode!(%{"code" => 0, "data" => %{"list" => %{"DRAM.US" => "ETF/US/DRAM"}}})
+
+          :gen_tcp.send(socket, http_ok(body))
+        end)
+
+      assert {:ok, [%{symbol: "DRAM.US", counter_id: "ETF/US/DRAM"}]} =
+               Symbol.resolve_counter_ids(config_with(server.port), ["DRAM.US"])
+
+      stop_fake_http_server(server)
+    end
+
+    test "falls back to local default when the server returns no entry" do
+      # BOGUS.XX is not in the directory and the server returns no list
+      # entry for it. Falls back to ST/XX/BOGUS.
+      server =
+        start_fake_http_server(fn _request, socket ->
+          body = Jason.encode!(%{"code" => 0, "data" => %{"list" => %{}}})
+          :gen_tcp.send(socket, http_ok(body))
+        end)
+
+      assert {:ok, [%{symbol: "BOGUS.XX", counter_id: "ST/XX/BOGUS"}]} =
+               Symbol.resolve_counter_ids(config_with(server.port), ["BOGUS.XX"])
+
+      stop_fake_http_server(server)
+    end
+
+    test "preserves input order" do
+      assert {:ok,
+              [
+                %{symbol: "SPY.US", counter_id: "ETF/US/SPY"},
+                %{symbol: "VOO.US", counter_id: "ETF/US/VOO"}
+              ]} =
+               Symbol.resolve_counter_ids(%Longbridge.Config{}, ["SPY.US", "VOO.US"])
+    end
+  end
+
   describe "Longbridge.Symbol.Cache" do
     alias Longbridge.Symbol.Cache
 

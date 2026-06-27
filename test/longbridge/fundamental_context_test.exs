@@ -131,6 +131,79 @@ defmodule Longbridge.FundamentalContextTest do
     end
   end
 
+  describe "filings/2" do
+    test "queries the filings endpoint with the symbol parameter" do
+      response = %{
+        "items" => [
+          %{
+            "id" => "627391979864985729",
+            "title" => "Apple | (4) Statement of changes in beneficial ownership",
+            "description" => "",
+            "file_name" => "4 - Apple Inc. (0000320193) (Issuer)",
+            "file_urls" => [
+              "https://www.sec.gov/Archives/edgar/data/320193/000178052526000005/xslF345X05/wk-form4_1773786674.xml"
+            ],
+            "publish_at" => "1773786677"
+          }
+        ]
+      }
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/filings"
+          assert request =~ "symbol=AAPL.US"
+
+          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok,
+              %{
+                "items" => [
+                  %{
+                    "id" => "627391979864985729",
+                    "title" => "Apple | (4) Statement of changes in beneficial ownership",
+                    "publish_at" => "1773786677"
+                  }
+                ]
+              }} = FundamentalContext.filings(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+
+    test "URL-encodes symbols with special characters" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "symbol=BRK.B.US"
+
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+          )
+        end)
+
+      assert {:ok, %{"items" => []}} =
+               FundamentalContext.filings(config_with(server.port), "BRK.B.US")
+
+      stop_fake_http_server(server)
+    end
+
+    test "returns an empty list when no filings exist" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          :gen_tcp.send(
+            socket,
+            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+          )
+        end)
+
+      assert {:ok, %{"items" => []}} =
+               FundamentalContext.filings(config_with(server.port), "OBSCURE.US")
+
+      stop_fake_http_server(server)
+    end
+  end
+
   describe "macroeconomic_indicators/2" do
     test "maps :country atoms to the upstream market strings" do
       response = %{

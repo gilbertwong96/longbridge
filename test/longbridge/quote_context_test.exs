@@ -708,6 +708,124 @@ defmodule Longbridge.QuoteContextTest do
   end
 
   describe "other API methods" do
+    test "history_candlesticks_by_offset/3 sends an offset query" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-hbo#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityHistoryCandlestickRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.history_candlesticks_by_offset(ctx, "AAPL.US",
+                 period: :DAY,
+                 adjust_type: 0,
+                 direction: :backward,
+                 date: "2024-05-01",
+                 minute: "10:30",
+                 count: 50,
+                 trade_session: 1
+               )
+
+      assert_receive {:cmd_code, 27}
+      assert_receive {:req, req}
+
+      assert req.symbol == "AAPL.US"
+      assert req.period == :DAY
+      assert req.adjust_type == :NO_ADJUST
+      assert req.query_type == :QUERY_BY_OFFSET
+      assert req.offset_request.direction == :BACKWARD
+      assert req.offset_request.date == "2024-05-01"
+      assert req.offset_request.minute == "10:30"
+      assert req.offset_request.count == 50
+      assert req.trade_session == 1
+
+      cleanup(server, ctx)
+    end
+
+    test "history_candlesticks_by_offset/3 with :forward direction" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-hbof#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityHistoryCandlestickRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.history_candlesticks_by_offset(ctx, "AAPL.US",
+                 period: :SIXTY_MINUTE,
+                 adjust_type: 1,
+                 direction: :forward,
+                 date: "2024-01-15",
+                 count: 10
+               )
+
+      assert_receive {:req, req}
+      assert req.offset_request.direction == :FORWARD
+      # minute defaults to empty string when omitted
+      assert req.offset_request.minute == ""
+      assert req.trade_session == 0
+
+      cleanup(server, ctx)
+    end
+
+    test "history_candlesticks_by_date/3 sends a date range query" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-hbd#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityHistoryCandlestickRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.history_candlesticks_by_date(ctx, "AAPL.US",
+                 period: :WEEK,
+                 adjust_type: 0,
+                 start_date: "2024-01-01",
+                 end_date: "2024-03-31",
+                 trade_session: 1
+               )
+
+      assert_receive {:cmd_code, 27}
+      assert_receive {:req, req}
+
+      assert req.symbol == "AAPL.US"
+      assert req.period == :WEEK
+      assert req.adjust_type == :NO_ADJUST
+      assert req.query_type == :QUERY_BY_DATE
+      assert req.date_request.start_date == "2024-01-01"
+      assert req.date_request.end_date == "2024-03-31"
+      assert req.trade_session == 1
+
+      cleanup(server, ctx)
+    end
+
+    test "history_candlesticks_by_date/3 defaults trade_session to 0" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-hbds#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityHistoryCandlestickRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.history_candlesticks_by_date(ctx, "AAPL.US",
+                 period: :DAY,
+                 adjust_type: 0,
+                 start_date: "2024-01-01",
+                 end_date: "2024-01-31"
+               )
+
+      assert_receive {:req, req}
+      assert req.trade_session == 0
+
+      cleanup(server, ctx)
+    end
+
     test "intraday/3" do
       resp = %Q.SecurityIntradayResponse{symbol: "AAPL.US", lines: []}
 
