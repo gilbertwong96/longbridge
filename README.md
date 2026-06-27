@@ -336,6 +336,13 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 
 ### `Longbridge.TradeContext`
 
+All HTTP requests (`order_detail`, `today_orders`, etc.)
+automatically retry once on a `401 Unauthorized` response after
+refreshing the access token via `Config.refresh_access_token/2`.
+If the refresh fails (e.g. `invalid_grant`), the original 401
+error is returned unchanged so callers can detect a revoked
+refresh token and re-authorize.
+
 **Push & subscription**
 
 | Method | Description |
