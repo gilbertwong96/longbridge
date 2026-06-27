@@ -125,8 +125,8 @@ defmodule Longbridge.HTTPClient do
           {:ok, term()} | {:error, term()}
   def request(method, path, body, %Config{} = config, opts \\ []) do
     case send_signed(method, path, body, config, opts) do
-      {:error, :token_expired} = err ->
-        retry_with_refresh(method, path, body, config, opts, err)
+      {:error, {:token_expired, original_err}} ->
+        retry_with_refresh(method, path, body, config, opts, original_err)
 
       other ->
         other
@@ -175,7 +175,7 @@ defmodule Longbridge.HTTPClient do
     case do_request(method, http_url, path_with_query, headers, body, opts) do
       {:error, {:http_status, 401, _body}} = err ->
         if Keyword.has_key?(opts, :token_refresher),
-          do: {:error, :token_expired},
+          do: {:error, {:token_expired, err}},
           else: err
 
       other ->
@@ -193,7 +193,7 @@ defmodule Longbridge.HTTPClient do
             do: callback.(new_config)
 
           case send_signed(method, path, body, new_config, opts) do
-            {:error, :token_expired} ->
+            {:error, {:token_expired, _}} ->
               original_err
 
             result ->

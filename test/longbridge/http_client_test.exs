@@ -253,6 +253,82 @@ defmodule Longbridge.HTTPClientTest do
     end
   end
 
+  describe "token refresher retry" do
+    test "returns the original 401 when no refresher is provided" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+
+      server =
+        start_fake_http_server(fn _request ->
+          http_json(401, ~s({"code":401}))
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+
+      assert {:error, {:http_status, 401, _body}} =
+               HTTPClient.request(:get, "/v1/test", "", config)
+    end
+
+    test "returns the original 401 when the refresher fails" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+
+      server =
+        start_fake_http_server(fn _request ->
+          http_json(401, ~s({"code":401}))
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+
+      assert {:error, {:http_status, 401, _body}} =
+               HTTPClient.request(:get, "/v1/test", "", config,
+                 token_refresher: fn _ -> {:error, :refresh_failed} end
+               )
+    end
+
+    test "returns the original 401 when retry also returns 401" do
+      config = Config.new(token: "old-token", app_key: "k", app_secret: "s")
+
+      server =
+        start_fake_http_server(fn _request ->
+          http_json(401, ~s({"code":401}))
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+
+      assert {:error, {:http_status, 401, _body}} =
+               HTTPClient.request(:get, "/v1/test", "", config,
+                 token_refresher: fn _ -> {:error, :no_token} end
+               )
+    end
+
+    test "ignores the refresher option when status is not 401" do
+      config = Config.new(token: "tok", app_key: "k", app_secret: "s")
+
+      server =
+        start_fake_http_server(fn _request ->
+          http_json(200, ~s({"code":0,"data":{}}))
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = %{config | http_url: "http://127.0.0.1:#{server.port}"}
+
+      called? = :counters.new(1, [])
+
+      assert {:ok, _} =
+               HTTPClient.request(:get, "/v1/test", "", config,
+                 token_refresher: fn _ ->
+                   :counters.add(called?, 1, 1)
+                   {:ok, config}
+                 end
+               )
+
+      # Refresher should NOT be called for a successful 200 response.
+      assert :counters.get(called?, 1) == 0
+    end
+  end
+
   describe "refresh_access_token error path" do
     test "propagates HTTP transport errors" do
       config = Config.new(token: "tok", app_key: "k", app_secret: "s")
