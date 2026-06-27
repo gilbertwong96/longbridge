@@ -255,6 +255,23 @@ Contexts subscribe themselves to the connection on `start_link/2` via `Longbridg
 
 The context's caller must be alive to receive push messages — `Longbridge.QuoteContext.start_link/2` is the right way to spawn one per long-running process.
 
+For typed callbacks instead of mailbox pattern-matching, `Longbridge.QuoteContext` also supports:
+
+```elixir
+QuoteContext.set_on_quote(ctx, fn push ->
+  IO.inspect(push.symbol)
+end)
+
+QuoteContext.set_on_depth(ctx, fn depth -> ... end)
+QuoteContext.set_on_brokers(ctx, fn brokers -> ... end)
+QuoteContext.set_on_trades(ctx, fn trades -> ... end)
+
+# Fallback for any topic
+QuoteContext.set_default_push_callback(ctx, fn msg -> ... end)
+```
+
+Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`, `PushDepth`, `PushBrokers`, or `PushTrade`). Mailbox delivery still works alongside the callbacks.
+
 ## API reference
 
 ### `Longbridge.QuoteContext`
