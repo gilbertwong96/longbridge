@@ -779,6 +779,44 @@ defmodule Longbridge.QuoteContextTest do
       cleanup(server, ctx)
     end
 
+    test "warrant_list/2 encodes every filter atom to its code" do
+      resp = %Q.WarrantFilterListResponse{warrant_list: [], total_count: 0}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-wfla#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.WarrantFilterListRequest)
+        )
+
+      assert {:ok, _} =
+               QuoteContext.warrant_list(ctx,
+                 symbol: "700.HK",
+                 language: 0,
+                 sort_by: :volume,
+                 sort_order: :asc,
+                 sort_offset: 10,
+                 sort_count: 100,
+                 type: [:put],
+                 issuer: [42],
+                 expiry_date: [:gt_12],
+                 price_type: [:out_bounds],
+                 status: [:suspend, :prepare_list, :normal]
+               )
+
+      assert_receive {:req, req}
+      assert req.filter_config.sort_by == 3
+      assert req.filter_config.sort_order == 1
+      assert req.filter_config.sort_offset == 10
+      assert req.filter_config.sort_count == 100
+      assert req.filter_config.type == [1]
+      assert req.filter_config.issuer == [42]
+      assert req.filter_config.expiry_date == [4]
+      assert req.filter_config.price_type == [2]
+      assert req.filter_config.status == [2, 3, 4]
+
+      cleanup(server, ctx)
+    end
+
     test "4-arg call falls back to default trade_session" do
       resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
 
