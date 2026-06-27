@@ -144,10 +144,18 @@ file to the server.
 ## OAuth 2.0 (custom token storage)
 
 The default storage writes tokens to
-`~/.longbridge/openapi/tokens/<client_id>`. To plug in Redis,
-Vault, an encrypted file, or anything else, implement the
-`Longbridge.OAuth.TokenStorage` behaviour and pass it via the
-`:storage` option:
+`~/.longbridge/openapi/tokens/<client_id>`. For tests or
+ephemeral sessions, use the bundled in-memory implementation:
+
+```elixir
+Longbridge.OAuth.authorize("client-id",
+  storage: Longbridge.OAuth.InMemoryTokenStorage
+)
+```
+
+To plug in Redis, Vault, an encrypted file, or anything else,
+implement the `Longbridge.OAuth.TokenStorage` behaviour and pass
+it via the `:storage` option:
 
 ```elixir
 defmodule MyApp.RedisStorage do
