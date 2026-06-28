@@ -766,6 +766,63 @@ defmodule Longbridge.OAuthTest do
 
       stop_oauth_fake_http(server)
     end
+
+    test "returns the exchange_code error when the token endpoint rejects the code" do
+      server =
+        start_oauth_fake_http_with_finch(fn _request_line ->
+          oauth_json_response(400, %{
+            "error" => "invalid_grant",
+            "error_description" => "bad code"
+          })
+        end)
+
+      callback_port = 18_176
+
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          OAuth.authorize("client-headless-bad-code",
+            http_url: "http://127.0.0.1:#{server.port}",
+            finch: server.finch,
+            callback_port: callback_port,
+            timeout: 3_000,
+            open_url_fn: fn url ->
+              send(parent, {:authorize_url, url})
+              :ok
+            end
+          )
+        end)
+
+      authorize_url =
+        receive do
+          {:authorize_url, url} -> url
+        after
+          2_000 -> flunk("authorize/2 never emitted the URL")
+        end
+
+      %URI{query: query} = URI.parse(authorize_url)
+      params = Enum.to_list(URI.query_decoder(query))
+      state = elem(Enum.find(params, &match?({"state", _}, &1)), 1)
+
+      {:ok, sock} = :gen_tcp.connect(~c"127.0.0.1", callback_port, [:binary, active: false])
+
+      :gen_tcp.send(
+        sock,
+        "GET /callback?code=the-code&state=#{state} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+      )
+
+      :gen_tcp.close(sock)
+
+      assert {:error, {:oauth_error, "invalid_grant", "bad code"}} = Task.await(task, 5_000)
+
+      stop_oauth_fake_http(server)
+    end
   end
 
   # ── Fake HTTP server helpers for OAuth tests ──────────────
