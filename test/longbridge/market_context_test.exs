@@ -135,6 +135,114 @@ defmodule Longbridge.MarketContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "encodes period :week as line_type=week" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "line_type=week"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.ah_premium(config_with(server.port), "700.HK", period: :week)
+
+      stop_fake_http_server(server)
+    end
+
+    test "encodes period :month as line_type=month" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "line_type=month"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.ah_premium(config_with(server.port), "700.HK", period: :month)
+
+      stop_fake_http_server(server)
+    end
+
+    test "encodes period :quarter as line_type=quarter" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "line_type=quarter"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.ah_premium(config_with(server.port), "700.HK", period: :quarter)
+
+      stop_fake_http_server(server)
+    end
+
+    test "encodes period :year as line_type=year" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "line_type=year"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.ah_premium(config_with(server.port), "700.HK", period: :year)
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "broker_holdings/3 - all period atoms" do
+    test "encodes period :rct_1 as type=rct_1" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "type=rct_1"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.broker_holdings(config_with(server.port), "AAPL.US", period: :rct_1)
+
+      stop_fake_http_server(server)
+    end
+
+    test "encodes period :rct_20 as type=rct_20" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "type=rct_20"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.broker_holdings(config_with(server.port), "AAPL.US", period: :rct_20)
+
+      stop_fake_http_server(server)
+    end
+
+    test "encodes period :rct_60 as type=rct_60" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "type=rct_60"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.broker_holdings(config_with(server.port), "AAPL.US", period: :rct_60)
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts a raw binary period (passthrough)" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "type=custom"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               MarketContext.broker_holdings(config_with(server.port), "AAPL.US",
+                 period: "custom"
+               )
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "trading_days/4" do
