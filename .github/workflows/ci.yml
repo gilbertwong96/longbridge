@@ -95,20 +95,25 @@ jobs:
 
       - name: Run tests with coverage
         # mix.exs sets test_coverage: [tool: ExCoveralls, ...], so
-        # `mix test --cover` produces both the per-module HTML
-        # report (cover/*.html) AND the excoveralls JSON
-        # (cover/excoveralls.json) that Codecov ingests correctly.
-        # The strict threshold check (80%) is in mix.exs.
-        run: mix test --cover
+        # `mix coveralls.json` runs the test suite under coverage
+        # and writes the coveralls.io-format JSON to
+        # cover/excoveralls.json. The strict threshold check (80%)
+        # from mix.exs is enforced here too — the build fails if
+        # total coverage drops below 80%.
+        #
+        # We use `mix coveralls.json` (not `mix test --cover`)
+        # because only the former produces the cover/excoveralls.json
+        # file the codecov uploader needs. `mix test --cover` only
+        # writes the per-module HTML to cover/.
+        run: mix coveralls.json
 
       - name: Post coverage to Codecov
         # Push the excoveralls JSON to codecov.io using the bash
-        # uploader. The bash uploader has better format detection
-        # for the coveralls.io JSON format than the new codecov-cli
-        # (which doesn't ship an Elixir/coveralls plugin and returns
-        # 'Found 0 coverage files to report'). The excoveralls JSON
-        # at cover/excoveralls.json is the standard coveralls.io
-        # format that bash uploader understands.
+        # uploader (v0.8.0). The bash uploader has better format
+        # detection for the coveralls.io JSON format than the new
+        # codecov-cli (which doesn't ship an Elixir/coveralls plugin
+        # and returns 'Found 0 coverage files to report' for the
+        # same file).
         #
         # Requires CODECOV_TOKEN in repo Settings -> Secrets ->
         # Actions. Get the token at
