@@ -39,7 +39,7 @@ defmodule Longbridge.Config do
     :headers,
     heartbeat_interval: 15_000,
     request_timeout: 10_000,
-    idle_timeout: 60_000
+    idle_timeout: 600_000
   ]
 
   @type t :: %__MODULE__{

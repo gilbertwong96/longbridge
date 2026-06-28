@@ -31,6 +31,14 @@ defmodule Longbridge.ConfigHTTPTest do
       assert config.app_secret == nil
       assert config.expired_at == nil
     end
+
+    test "struct default idle_timeout matches Config.new/1 (600_000)" do
+      # The defstruct default and Config.new/1 must agree — a 60_000 vs
+      # 600_000 mismatch previously made %Config{} drop connections 10x
+      # too fast.
+      assert %Config{}.idle_timeout == Config.new().idle_timeout
+      assert %Config{}.idle_timeout == 600_000
+    end
   end
 
   describe "Config.new/1 china endpoints" do
