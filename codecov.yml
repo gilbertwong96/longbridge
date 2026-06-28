@@ -22,3 +22,27 @@ coverage:
         target: 70%
         threshold: 5%
     changes: off
+
+# Note on Codecov badge accuracy:
+#
+# The CI uploads cover/lcov.info.coverdata (Erlang cover binary
+# produced by `mix test --export-coverage`). Codecov accepts the
+# upload and reports `Found 90 network files to report` in its log,
+# but the line coverage parsing on Erlang cover binaries is broken
+# in current Codecov releases and the badge shows 0%.
+#
+# For an accurate Codecov badge, install excoveralls:
+#
+#   # mix.exs:
+#   {:excoveralls, "~> 0.18", only: :test},
+#   test_coverage: [tool: ExCoveralls],
+#
+#   # .github/workflows/ci.yml, replace the Post coverage step with:
+#   - name: Run tests with coverage
+#     run: mix coveralls.json
+#   - uses: codecov/codecov-action@v5
+#     with:
+#       files: cover/excoveralls.json
+#
+# The local mix test --cover threshold (80%) is still enforced at
+# build time, so the badge is a cosmetic issue, not a coverage gap.
