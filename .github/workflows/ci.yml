@@ -52,6 +52,15 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
+      - name: Install protoc
+        # `protox` shells out to the system `protoc` to compile the
+        # vendored .proto files. erlef/setup-beam's Ubuntu image
+        # doesn't include it, so install via apt.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler
+          protoc --version
+
       - name: Compile (warnings-as-errors)
         # We intentionally don't pass --all-warnings: that flag treats
         # third-party dep warnings (yamerl's deprecated catch, etc.)
