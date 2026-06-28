@@ -154,6 +154,43 @@ defmodule Longbridge.ScreenerContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "leaves data without a filter key unchanged" do
+      strategy_response = %{
+        "code" => 0,
+        "data" => %{"id" => 42, "name" => "No filter"}
+      }
+
+      server =
+        start_fake_http_server(fn conn ->
+          ok(conn, Jason.encode!(strategy_response))
+        end)
+
+      assert {:ok, %{"id" => 42, "name" => "No filter"}} =
+               ScreenerContext.strategy(config_with(server.port), 42)
+
+      stop_fake_http_server(server)
+    end
+
+    test "leaves filter items without a key field unchanged" do
+      strategy_response = %{
+        "code" => 0,
+        "data" => %{
+          "id" => 42,
+          "filter" => %{"filters" => [%{"min" => "5", "max" => "10"}]}
+        }
+      }
+
+      server =
+        start_fake_http_server(fn conn ->
+          ok(conn, Jason.encode!(strategy_response))
+        end)
+
+      assert {:ok, %{"filter" => %{"filters" => [%{"min" => "5", "max" => "10"}]}}} =
+               ScreenerContext.strategy(config_with(server.port), 42)
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "search/3 (Mode A: strategy_id)" do
@@ -295,6 +332,36 @@ defmodule Longbridge.ScreenerContextTest do
         end)
 
       assert {:ok, _} =
+               ScreenerContext.search(config_with(server.port), "US",
+                 page: 0,
+                 size: 10
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "leaves response without an items key unchanged" do
+      server =
+        start_fake_http_server(fn conn ->
+          ok(conn, ~s({"code":0,"data":{"summary":"some summary"}}))
+        end)
+
+      assert {:ok, %{"summary" => "some summary"}} =
+               ScreenerContext.search(config_with(server.port), "US",
+                 page: 0,
+                 size: 10
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "leaves items without indicators unchanged" do
+      server =
+        start_fake_http_server(fn conn ->
+          ok(conn, ~s({"code":0,"data":{"items":[{"symbol":"AAPL.US"}]}}))
+        end)
+
+      assert {:ok, %{"items" => [%{"symbol" => "AAPL.US"}]}} =
                ScreenerContext.search(config_with(server.port), "US",
                  page: 0,
                  size: 10
