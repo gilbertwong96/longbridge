@@ -66,6 +66,27 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
       assert File.dir?(Path.dirname(path))
     end
 
+    test "writes the token file with 0600 permissions" do
+      client_id = unique_client_id()
+      :ok = FileTokenStorage.save(client_id, %{access_token: "secret", expires_at: 1})
+      on_exit(fn -> cleanup(client_id) end)
+
+      path = FileTokenStorage.token_path(client_id)
+      assert {:ok, %File.Stat{mode: mode}} = File.stat(path)
+      # Strip file-type bits; keep only the permission octet.
+      assert Bitwise.band(mode, 0o777) == 0o600
+    end
+
+    test "writes the token directory with 0700 permissions" do
+      client_id = unique_client_id()
+      :ok = FileTokenStorage.save(client_id, %{access_token: "secret", expires_at: 1})
+      on_exit(fn -> cleanup(client_id) end)
+
+      dir = Path.dirname(FileTokenStorage.token_path(client_id))
+      assert {:ok, %File.Stat{mode: mode}} = File.stat(dir)
+      assert Bitwise.band(mode, 0o777) == 0o700
+    end
+
     test "overwrites an existing token" do
       client_id = unique_client_id()
       :ok = FileTokenStorage.save(client_id, %{access_token: "v1"})

@@ -39,7 +39,12 @@ defmodule Longbridge.OAuth.FileTokenStorage do
   @impl true
   def save(client_id, token) do
     path = token_path(client_id)
-    File.mkdir_p!(Path.dirname(path))
+    dir = Path.dirname(path)
+    File.mkdir_p!(dir)
+    # Restrict the token directory and the token file itself: access/refresh
+    # tokens are long-lived credentials. Mirrors the upstream Go SDK, which
+    # writes with MkdirAll(dir, 0700) and WriteFile(path, data, 0600).
+    :ok = File.chmod!(dir, 0o700)
 
     json =
       Jason.encode!(%{
@@ -53,7 +58,9 @@ defmodule Longbridge.OAuth.FileTokenStorage do
         http_url: Map.get(token, :http_url)
       })
 
-    File.write(path, json)
+    :ok = File.write(path, json)
+    :ok = File.chmod!(path, 0o600)
+    :ok
   end
 
   @doc """

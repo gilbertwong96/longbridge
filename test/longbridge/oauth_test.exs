@@ -21,9 +21,9 @@ defmodule Longbridge.OAuthTest do
   end
 
   describe "pkce_challenge/1" do
-    test "matches the SHA256 + base64url scheme" do
+    test "matches the SHA256 + base64url scheme (RFC 7636)" do
       verifier = "test-verifier-1234567890"
-      expected = Base.encode16(:crypto.hash(:sha256, verifier), case: :lower)
+      expected = Base.url_encode64(:crypto.hash(:sha256, verifier), padding: false)
       assert OAuth.pkce_challenge(verifier) == expected
     end
 

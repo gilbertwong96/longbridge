@@ -121,8 +121,30 @@ defmodule Longbridge.OAuth do
         scope: Keyword.get(opts, :scope, @authorize_scope)
       )
 
-    with {:ok, _port, _pid} <- start_callback_server(callback_port, timeout),
-         :ok <- Keyword.get(opts, :open_url_fn, &open_browser/1).(url),
+    case start_callback_server(callback_port, timeout) do
+      {:ok, listen, _port, _pid} ->
+        try do
+          run_authorize_flow(
+            url,
+            state,
+            timeout,
+            client_id,
+            redirect_uri,
+            verifier,
+            http_url,
+            opts
+          )
+        after
+          :ok = stop_callback_listener(listen)
+        end
+
+      {:error, _reason} = err ->
+        err
+    end
+  end
+
+  defp run_authorize_flow(url, state, timeout, client_id, redirect_uri, verifier, http_url, opts) do
+    with :ok <- Keyword.get(opts, :open_url_fn, &open_browser/1).(url),
          {:ok, code} <- await_callback(state, timeout) do
       complete_authorization(client_id, code, redirect_uri, verifier, http_url, opts)
     end
@@ -214,11 +236,15 @@ defmodule Longbridge.OAuth do
   """
   @spec refresh_token(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def refresh_token(client_id, opts \\ []) do
-    http_url = Keyword.get(opts, :http_url, oauth_base_url(opts))
     storage = resolve_storage(opts)
     finch = Keyword.get(opts, :finch, Longbridge.Finch)
 
-    with {:ok, refresh_token} <- read_refresh_token(client_id, storage) do
+    with {:ok, refresh_token, stored_http_url} <- read_refresh_token(client_id, storage) do
+      # Prefer an explicit override, then the http_url persisted with the
+      # token (so a .cn token refreshes against .cn even without
+      # `china: true`), then the derived default.
+      http_url = opts[:http_url] || stored_http_url || oauth_base_url(opts)
+
       body =
         URI.encode_query(%{
           grant_type: "refresh_token",
@@ -364,11 +390,11 @@ defmodule Longbridge.OAuth do
   @doc """
   Computes the PKCE S256 code challenge from a verifier.
 
-  Challenge = base64url(sha256(verifier)).
+  Challenge = base64url(sha256(verifier)) without padding, per RFC 7636.
   """
   @spec pkce_challenge(String.t()) :: String.t()
   def pkce_challenge(verifier) do
-    Base.encode16(:crypto.hash(:sha256, verifier), case: :lower)
+    Base.url_encode64(:crypto.hash(:sha256, verifier), padding: false)
   end
 
   # ── Internal helpers ────────────────────────────────────
@@ -407,11 +433,19 @@ defmodule Longbridge.OAuth do
           end)
 
         Process.unlink(pid)
-        {:ok, port, pid}
+        {:ok, listen, port, pid}
 
       {:error, reason} ->
         {:error, {:listen_failed, reason}}
     end
+  end
+
+  # Closes the callback listen socket so the spawned acceptor's
+  # :gen_tcp.accept/1 returns {:error, :closed} and its loop exits,
+  # freeing the callback port. Called from authorize/2's try/after so
+  # the listener is torn down on success, user decline, and timeout.
+  defp stop_callback_listener(listen) do
+    :gen_tcp.close(listen)
   end
 
   # Splits "GET /path?query HTTP/1.1\r\n..." into {method, path, body}.
@@ -518,8 +552,8 @@ defmodule Longbridge.OAuth do
 
   defp read_refresh_token(client_id, storage) do
     case storage.load(client_id) do
-      {:ok, %{refresh_token: refresh_token}} when is_binary(refresh_token) ->
-        {:ok, refresh_token}
+      {:ok, %{refresh_token: refresh_token} = token} when is_binary(refresh_token) ->
+        {:ok, refresh_token, Map.get(token, :http_url)}
 
       {:ok, _} ->
         {:error, :no_refresh_token}
