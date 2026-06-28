@@ -1,6 +1,7 @@
 defmodule Longbridge.MarketContextTest do
   use ExUnit.Case, async: false
 
+  alias Longbridge.Config
   alias Longbridge.MarketContext
   alias Longbridge.TestSupport.FakeHTTPServer
 
@@ -10,7 +11,7 @@ defmodule Longbridge.MarketContextTest do
   defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
   defp config_with(port) do
-    Longbridge.Config.new(
+    Config.new(
       token: "test-token",
       app_key: "test-key",
       app_secret: "test-secret",
@@ -418,12 +419,7 @@ defmodule Longbridge.MarketContextTest do
         end)
 
       config =
-        Longbridge.Config.new(
-          token: "tok",
-          app_key: "k",
-          app_secret: "s",
-          http_url: "http://127.0.0.1:1"
-        )
+        Config.new(token: "tok", app_key: "k", app_secret: "s", http_url: "http://127.0.0.1:1")
 
       assert {:ok, _} =
                MarketContext.market_session(config,
@@ -446,12 +442,7 @@ defmodule Longbridge.MarketContextTest do
         end)
 
       config =
-        Longbridge.Config.new(
-          token: "tok",
-          app_key: "k",
-          app_secret: "s",
-          http_url: "http://127.0.0.1:1"
-        )
+        Config.new(token: "tok", app_key: "k", app_secret: "s", http_url: "http://127.0.0.1:1")
 
       assert {:ok, _} =
                MarketContext.top_movers(config, [sort: :time],

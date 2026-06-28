@@ -1,6 +1,7 @@
 defmodule Longbridge.SharelistContextTest do
   use ExUnit.Case, async: false
 
+  alias Longbridge.Config
   alias Longbridge.SharelistContext
   alias Longbridge.TestSupport.FakeHTTPServer
 
@@ -10,7 +11,7 @@ defmodule Longbridge.SharelistContextTest do
   defp ok(conn, data), do: FakeHTTPServer.ok(conn, data)
 
   defp config_with(port) do
-    Longbridge.Config.new(
+    Config.new(
       token: "test-token",
       app_key: "test-key",
       app_secret: "test-secret",
@@ -198,12 +199,7 @@ defmodule Longbridge.SharelistContextTest do
         end)
 
       config =
-        Longbridge.Config.new(
-          token: "tok",
-          app_key: "k",
-          app_secret: "s",
-          http_url: "http://127.0.0.1:1"
-        )
+        Config.new(token: "tok", app_key: "k", app_secret: "s", http_url: "http://127.0.0.1:1")
 
       assert {:ok, _} =
                SharelistContext.detail(config, "abc-123",
@@ -223,12 +219,7 @@ defmodule Longbridge.SharelistContextTest do
         end)
 
       config =
-        Longbridge.Config.new(
-          token: "tok",
-          app_key: "k",
-          app_secret: "s",
-          http_url: "http://127.0.0.1:1"
-        )
+        Config.new(token: "tok", app_key: "k", app_secret: "s", http_url: "http://127.0.0.1:1")
 
       assert {:ok, _} =
                SharelistContext.list(config, [count: 20],
