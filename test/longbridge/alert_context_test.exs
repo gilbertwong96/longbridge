@@ -273,4 +273,26 @@ defmodule Longbridge.AlertContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "list_alerts/2 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/notify/reminders"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => []})))
+        end)
+
+      config = Longbridge.Config.new(
+        token: "tok",
+        app_key: "k",
+        app_secret: "s",
+        http_url: "http://127.0.0.1:1"
+      )
+
+      assert {:ok, _} =
+               AlertContext.list_alerts(config, http_url: "http://127.0.0.1:#{server.port}")
+
+      stop_fake_http_server(server)
+    end
+  end
 end

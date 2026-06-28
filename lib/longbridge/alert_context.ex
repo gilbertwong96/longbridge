@@ -35,16 +35,16 @@ defmodule Longbridge.AlertContext do
   - `:direction` — `:above` or `:below` (required)
   - `:remark` — optional note
   """
-  @spec add_alert(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def add_alert(%Config{} = config, opts) do
+  @spec add_alert(Config.t(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
+  def add_alert(%Config{} = config, opts, http_opts \\ []) do
     body = Jason.encode!(Map.new(opts))
-    HTTPClient.request_json(:post, @reminders_path, body, config)
+    HTTPClient.request_json(:post, @reminders_path, body, config, http_opts)
   end
 
   @doc "Lists all active price alerts."
-  @spec list_alerts(Config.t()) :: {:ok, map()} | {:error, term()}
-  def list_alerts(%Config{} = config) do
-    HTTPClient.request_json(:get, @reminders_path, "", config)
+  @spec list_alerts(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def list_alerts(%Config{} = config, opts \\ []) do
+    HTTPClient.request_json(:get, @reminders_path, "", config, opts)
   end
 
   @doc """
@@ -62,12 +62,13 @@ defmodule Longbridge.AlertContext do
   Added in `longbridge/openapi` 4.1.0 as a replacement for the old
   `enable`/`disable` methods.
   """
-  @spec update(Config.t(), map(), boolean()) :: {:ok, map()} | {:error, term()}
-  def update(%Config{} = config, item, enabled) when is_map(item) and is_boolean(enabled) do
+  @spec update(Config.t(), map(), boolean(), keyword()) :: {:ok, map()} | {:error, term()}
+  def update(%Config{} = config, item, enabled, opts \\ [])
+      when is_map(item) and is_boolean(enabled) do
     body =
       Jason.encode!(Map.merge(item, %{id: Map.get(item, "id"), enabled: enabled}))
 
-    HTTPClient.request_json(:post, @reminders_path, body, config)
+    HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
 
   @doc """
@@ -80,10 +81,10 @@ defmodule Longbridge.AlertContext do
   the rejection.
   """
   @deprecated "Use update/3 with the alert item from list_alerts/1"
-  @spec enable_alert(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def enable_alert(%Config{} = config, alert_id) do
+  @spec enable_alert(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def enable_alert(%Config{} = config, alert_id, opts \\ []) do
     body = Jason.encode!(%{alert_id: alert_id, enable: true})
-    HTTPClient.request_json(:post, @reminders_path, body, config)
+    HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
 
   @doc """
@@ -93,10 +94,10 @@ defmodule Longbridge.AlertContext do
   upstream bug.
   """
   @deprecated "Use update/3 with the alert item from list_alerts/1"
-  @spec disable_alert(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def disable_alert(%Config{} = config, alert_id) do
+  @spec disable_alert(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def disable_alert(%Config{} = config, alert_id, opts \\ []) do
     body = Jason.encode!(%{alert_id: alert_id, enable: false})
-    HTTPClient.request_json(:post, @reminders_path, body, config)
+    HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
 
   @doc """
@@ -107,14 +108,17 @@ defmodule Longbridge.AlertContext do
   Accepts a single `alert_id` string or a list of `alert_id` strings.
   Pass a list for batch delete (matches upstream 4.1.0+).
   """
-  @spec delete_alert(Config.t(), String.t() | [String.t()]) ::
+  @spec delete_alert(Config.t(), String.t() | [String.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
-  def delete_alert(%Config{} = config, alert_ids) when is_binary(alert_ids) do
-    delete_alert(config, [alert_ids])
-  end
+  def delete_alert(%Config{} = config, alert_ids, opts \\ [])
+      when is_binary(alert_ids) or is_list(alert_ids) do
+    ids =
+      case alert_ids do
+        list when is_list(list) -> list
+        bin -> [bin]
+      end
 
-  def delete_alert(%Config{} = config, alert_ids) when is_list(alert_ids) do
-    body = Jason.encode!(%{ids: alert_ids})
-    HTTPClient.request_json(:delete, @reminders_path, body, config)
+    body = Jason.encode!(%{ids: ids})
+    HTTPClient.request_json(:delete, @reminders_path, body, config, opts)
   end
 end
