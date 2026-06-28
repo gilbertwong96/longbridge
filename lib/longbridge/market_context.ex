@@ -60,7 +60,13 @@ defmodule Longbridge.MarketContext do
   @doc """
   Lists market anomaly alerts (trading halts, suspensions, etc.).
 
-  `market` is a region code: `"US"`, `"HK"`, `"CN"`, `"SG"`.
+  `market` is a region code: `"US"`, `"HK"`, `"CN"`, `"SG"`. Defaults
+  to `"US"`.
+
+  Endpoint: `GET /v1/quote/changes?market=<m>&category=0`. The
+  response has `"all_off"` (true if no active alerts) and `"changes"`
+  (list of `%{"symbol", "type", "title_cn" | "title_en", "update_at"}`
+  entries).
   """
   @spec anomaly_alerts(Config.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -93,6 +99,12 @@ defmodule Longbridge.MarketContext do
 
   @doc """
   Returns buy/sell/neutral trade statistics for a symbol.
+
+  Endpoint: `GET /v1/quote/trades-statistics?counter_id=...`. The
+  response is shaped as
+  `%{"statistics" => %{"buy_ratio" => ..., "sell_ratio" => ..., ...},
+      "trades" => [%{"price", "volume", "direction", "ts"}, ...]}`
+  — a windowed summary plus the recent trade tape used to derive it.
   """
   @spec trade_status(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def trade_status(%Config{} = config, symbol, opts \\ []) do

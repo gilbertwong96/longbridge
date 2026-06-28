@@ -1,8 +1,9 @@
 defmodule Longbridge.Symbol.Directory do
-  @moduledoc false
-  # Vendored subset of the upstream `counter.rs` directory:
-  # special counter_ids known at build time (ETFs, US indexes, US warrants).
-  # New listings resolved at runtime go through `Longbridge.Symbol.Cache`.
+  @moduledoc """
+  Vendored subset of the upstream `counter.rs` directory:
+  special counter_ids known at build time (ETFs, US indexes, US warrants).
+  New listings resolved at runtime go through `Longbridge.Symbol.Cache`.
+  """
 
   @ets :longbridge_symbol_directory
 

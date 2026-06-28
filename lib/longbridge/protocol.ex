@@ -3,29 +3,53 @@ defmodule Longbridge.Protocol do
   Longbridge v1 socket protocol implementation.
 
   Handles binary packet framing/deframing, handshake, and message types
-  for the Longbridge OpenAPI protocol.
+  for the Longbridge OpenAPI protocol. Used by `Longbridge.WSConnection`
+  (the only transport — the SDK previously supported raw TCP but is
+  WebSocket-only now).
 
   ## Protocol Overview
 
-  The Longbridge protocol uses a binary framing format over TCP or WebSocket.
-  Packets have a fixed header followed by a Protobuf-encoded body.
+  Each WebSocket binary message contains one or more **length-prefixed**
+  protocol packets concatenated together:
+
+  ```
+  ┌──────────────────────────┐
+  │ length (4 bytes BE u32)  │
+  ├──────────────────────────┤
+  │ header (5/10/11 bytes)   │
+  ├──────────────────────────┤
+  │ body (Protobuf-encoded)  │
+  └──────────────────────────┘
+  ```
+
+  The WebSocket layer's first protocol packet after upgrade is a
+  2-byte **handshake**: `<<0b00010001, 0b00001001>>`
+  (version=1, codec=protobuf=1, platform=OpenAPI=9, reserve=0).
 
   ### Packet Types
-  - **Request** (type 1) — client initiates, expects a paired response
-  - **Response** (type 2) — server replies to a request
-  - **Push** (type 3) — server sends data without a prior request
 
-  ### Handshake
-  TCP connections send a 2-byte handshake packet before any other data:
-  - Byte 1: `version (4 bits) | codec (4 bits)` = `0b00010001`
-  - Byte 2: `platform (4 bits) | reserve (4 bits)` = `0b00001001`
-  (version=1, codec=protobuf=1, platform=OpenAPI=9)
+    * **Request** (type 1) — client initiates, expects a paired response.
+    * **Response** (type 2) — server replies to a request. Status code
+      in the header indicates success/error.
+    * **Push** (type 3) — server-sent data without a prior request.
 
   ### Control Commands
-  - `0` — Close (server disconnection notice)
-  - `1` — Heartbeat (keep-alive ping/pong)
-  - `2` — Auth (authenticate with token)
-  - `3` — Reconnect (resume with session_id)
+
+    * `0` — Close (server disconnection notice)
+    * `1` — Heartbeat (keep-alive ping/pong)
+    * `2` — Auth (authenticate with token)
+    * `3` — Reconnect (resume with session_id)
+
+  ### Status Codes (response header)
+
+    * `0` SUCCESS
+    * `1` SERVER_TIMEOUT
+    * `2` CLIENT_TIMEOUT
+    * `3` BAD_REQUEST
+    * `4` BAD_RESPONSE
+    * `5` UNAUTHENTICATED
+    * `6` PERMISSION_DENIED
+    * `7` SERVER_INTERNAL_ERROR
   """
 
   alias Longbridge.Protocol.Header
@@ -51,14 +75,28 @@ defmodule Longbridge.Protocol do
 
   # ── Public API ───────────────────────────────────────────
 
-  @doc "Returns the 2-byte TCP handshake packet."
+  @doc """
+  Returns the 2-byte protocol handshake sent as the first packet
+  after the WebSocket upgrade.
+
+  The same bytes are used regardless of transport (legacy TCP
+  connections sent them on the raw socket; the WebSocket transport
+  sends them as a WS binary message). Bytes are
+  `<<0b00010001, 0b00001001>>` (version=1, codec=protobuf=1,
+  platform=OpenAPI=9, reserve=0).
+  """
   @spec handshake() :: binary()
   def handshake, do: @handshake_bytes
 
   @doc """
-  Packs a complete packet (header + body).
+  Packs a complete packet (header + body) into iodata ready to send.
 
-  Returns iodata suitable for writing to a socket.
+  The header's `:body_length` field is overwritten with the actual
+  body size, so callers can pass a header with `body_length: 0` and
+  trust this function to fill it in.
+
+  Returns a two-element list `[header_binary, body]` suitable for
+  `IO.iodata_to_binary/1` or writing directly to a socket.
   """
   @spec pack(Header.t(), body :: iodata()) :: [binary()]
   def pack(%Header{} = header, body) do
@@ -68,9 +106,27 @@ defmodule Longbridge.Protocol do
   end
 
   @doc """
-  Unpacks a complete packet from binary data.
+  Unpacks one packet from the front of `data` and returns any
+  trailing bytes unchanged.
 
-  Returns `{:ok, header, body_binary, remaining}` or `{:error, reason}`.
+  Used by `Longbridge.WSConnection` to split a single WebSocket binary
+  message that may contain multiple length-prefixed packets
+  concatenated together. The returned `remaining` is fed back in on
+  the next call.
+
+  If the response header has `gzip: true`, the body is
+  transparently decompressed — `Longbridge.QuoteContext` and friends
+  can then pass the result straight to `Protox.decode!/2` without
+  caring about compression.
+
+  Returns:
+
+    * `{:ok, header, body, remaining}` — `body` is the raw or
+      gunzipped body bytes; `remaining` is whatever was left after
+      `body_length` bytes.
+    * `{:error, :incomplete_body}` — not enough bytes yet; buffer
+      and try again when more data arrives.
+    * `{:error, reason}` — header decode failed.
   """
   @spec unpack(binary()) ::
           {:ok, Header.t(), binary(), binary()}

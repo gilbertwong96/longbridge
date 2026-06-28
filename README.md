@@ -1,8 +1,8 @@
 # Longbridge
 
-Elixir SDK for the [Longbridge OpenAPI](https://open.longbridge.com) trading platform — real-time market data, push subscriptions, and (in-progress) trading APIs for US, HK, SG, and CN markets.
+Elixir SDK for the [Longbridge OpenAPI](https://open.longbridge.com) trading platform — real-time market data, push subscriptions, trading, watchlists, screener, financial calendar, fundamental data, and portfolio analytics for US, HK, SG, and CN markets.
 
-The SDK speaks Longbridge's binary protocol directly over TCP: 2-byte handshake, then Protobuf-encoded request/response and push frames with a custom 11/10/5-byte header layout. There is no JSON-over-HTTP path; this library is a faithful re-implementation of the wire format, not an HTTP client.
+The SDK speaks Longbridge's binary protocol over WebSocket for streaming quote and trade data, and uses signed HTTP requests for everything else (order placement, account queries, market data on demand, screener, watchlist, calendar, fundamentals). Quote and trade WebSockets authenticate with a one-time password (OTP) derived from the long-lived access token; HTTP requests sign with HMAC-SHA256.
 
 > **Status: beta.** The quote endpoint is feature-complete; the trade endpoint supports subscription, order submission, position queries, account balance, and execution history via the Longbridge REST API. The API is subject to change before 0.1.0.
 
@@ -37,7 +37,7 @@ config = Longbridge.Config.new(
 
 # One-shot request
 {:ok, %Longbridge.Quote.V1.SecurityQuote{} = quote} =
-  Longbridge.QuoteContext.quote(quote_ctx, ["AAPL.US", "700.HK"])
+  Longbridge.QuoteContext.quote(quote_ctx, ["AAPL.US", "00700.HK"])
 
 IO.inspect(quote)
 
@@ -86,14 +86,18 @@ end)
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `token` | `nil` | OAuth access token. **Required**; `Connection` stops with `{:error, :no_token}` if nil. |
-| `app_key` / `app_secret` | `nil` | App credentials (used to sign HTTP requests, e.g. for token refresh). |
+| `token` | `nil` | OAuth access token. **Required** for WS contexts and signed HTTP requests; `WSConnection` aborts with `{:error, :no_token}` if nil. |
+| `app_key` / `app_secret` | `nil` | App credentials. Required for legacy `refresh_access_token/2`. OAuth users only need them for `register_client/1`. |
 | `expired_at` | `nil` | Unix timestamp when `token` expires. Set after `refresh_access_token/2`. |
-| `http_url` | `https://openapi.longbridge.{com,cn}` | HTTP API base, used by `refresh_access_token/2`. |
-| `china` | `false` | When true, switch to `.longbridge.cn` endpoints for mainland connectivity. |
-| `quote_host` / `quote_port` | `openapi-quote.longbridge.{com,cn}`:2020 | Override for staging or proxies. |
-| `trade_host` / `trade_port` | `openapi-trade.longbridge.{com,cn}`:2020 | Same. |
-| `transport` | `:tcp` | `:websocket` is reserved for a future WebSocket transport. |
+| `china` | `false` | When `true`, switch to `.longbridge.cn` endpoints (HTTP, quote WS, trade WS). |
+| `http_url` | `https://openapi.longbridge.{com,cn}` | HTTP API base. Used by every HTTP context and `refresh_access_token/2`. |
+| `quote_ws_url` | `wss://openapi-quote.longbridge.{com,cn}` | Quote WebSocket URL. Override for staging or proxies. |
+| `trade_ws_url` | `wss://openapi-trade.longbridge.{com,cn}` | Trade WebSocket URL. Same. |
+| `gzip_threshold` | `1024` bytes | Bodies ≥ this size will be gzipped on send. |
+| `heartbeat_interval` | `15_000` ms | Client→server keep-alive cadence. |
+| `request_timeout` | `10_000` ms | Per-request timeout. |
+| `idle_timeout` | `600_000` ms | Close the connection after this much inactivity (used by `Mint.WebSocket`). |
+| `headers` | `nil` | Extra `{name, value}` headers appended to every HTTP and WS upgrade request (mirrors Rust SDK 4.0.6's `Config::header`). |
 
 To inject custom HTTP/WS request headers (e.g. `X-Forwarded-For`,
 custom auth, tenant routing), pass `:headers` as a list of
@@ -212,11 +216,11 @@ Longbridge.OAuth.authorize("client-id", storage: MyApp.RedisStorage)
 The `:storage` option is supported by `authorize/2`,
 `refresh_token/2`, `load_token/2`, and `export_token/2`.
 
+The typical headless workflow:
 
-
-```
+```sh
 # On dev machine (browser available)
-Longbridge.OAuth.authorize("your-client-id")
+mix run -e 'Longbridge.OAuth.authorize("your-client-id")'
 # → writes ~/.longbridge/openapi/tokens/<client_id>
 
 # Copy that file to the server (same path)
@@ -235,11 +239,8 @@ grant. The `Longbridge.OAuth` module's full API:
 - `register_client/1` — register a new OAuth client
 - `authorize_url/5` — build the authorization URL (testable)
 - `pkce_challenge/1` — PKCE S256 helper (testable)
-| `gzip_threshold` | `1024` bytes | Bodies ≥ this size will be gzipped on send. |
-| `heartbeat_interval` | `15_000` ms | Client→server keep-alive cadence. |
-| `request_timeout` | `10_000` ms | Per-request timeout. |
 
-`config.token` must be a fresh OAuth token from [open.longbridge.com](https://open.longbridge.com). Token refresh is the caller's responsibility — this SDK does not implement the OAuth flow.
+`config.token` must be a fresh OAuth token from [open.longbridge.com](https://open.longbridge.com). For OAuth, token refresh is handled automatically by `Longbridge.OAuth.load_token/1` and `Longbridge.HTTPClient` (when `:refresh_on_401` is set on a request).
 
 ## Architecture
 
@@ -248,63 +249,83 @@ lib/
 ├── longbridge.ex                # top-level module, public entry, docs
 └── longbridge/
     ├── _protos.ex              # use Protox, files: [protos/*.proto] — code-gen entry
-    ├── alert_context.ex         # price alert management (add/enable/disable/delete)
-    ├── application.ex           # supervision tree, starts Longbridge.Finch pool
+    ├── alert_context.ex         # price alert management (add/enable/disable/update/delete)
+    ├── application.ex           # supervision tree, starts Longbridge.Finch + Symbol.Store
     ├── asset_context.ex         # account statement download
     ├── calendar_context.ex      # financial calendar (earnings, dividends, IPOs, macro)
-    ├── config.ex                # Longbridge.Config struct, refresh_access_token/2
-    ├── connection.ex            # TCP GenServer (one per endpoint)
+    ├── config.ex                # Longbridge.Config struct + refresh_access_token/2
+    ├── connection/
+    │   └── session.ex           # transport-agnostic reconnect / idle / broadcast logic
     ├── content_context.ex       # news, community topics, announcements
     ├── dca_context.ex           # dollar-cost averaging plan management
+    ├── decimal.ex               # optional helpers for wire-format string fields
     ├── fundamental_context.ex   # financial reports, analyst ratings, dividends, valuation
-    ├── http_client.ex           # HMAC-SHA256 signed HTTP requests via Finch
+    ├── http_client.ex           # HMAC-SHA256 signed HTTP requests via Finch (+ 401 retry)
     ├── market_context.ex        # market status, broker holdings, indices, anomaly alerts
     ├── oauth.ex                 # OAuth 2.0 Authorization Code flow with PKCE
+    ├── oauth/
+    │   ├── file_token_storage.ex   # default ~/.longbridge/openapi/tokens/<id> JSON file
+    │   ├── in_memory_token_storage.ex
+    │   └── token_storage.ex      # behaviour for plugging custom storage (Redis, Vault...)
     ├── portfolio_context.ex     # exchange rates, portfolio P&L analysis
-    ├── protocol.ex              # packet pack/unpack + wire-format constants
-    ├── protocol/header.ex       # 11/10/5-byte header encode/decode
-    ├── quote_context.ex         # public API: 20+ quote methods
+    ├── protocol.ex              # wire-format constants + pack/unpack whole packets
+    ├── protocol/header.ex       # 11/10/5-byte header encode/decode (request/response/push)
+    ├── quote_context.ex         # public API: 25+ quote methods + push subscription
+    ├── quote_context/realtime_store.ex  # in-memory push-data cache
+    ├── quote_http_context.ex    # HTTP-backed quote methods (watchlist, market temp, ...)
+    ├── screener_context.ex      # screener strategies, indicator search, AI recommendations
     ├── sharelist_context.ex     # community sharelist management
-    └── trade_context.ex         # public API: orders, positions, account, executions, push
+    ├── symbol.ex                # user symbol ↔ counter_id conversion (with remote fallback)
+    ├── symbol/
+    │   ├── cache.ex             # resolved counter_id cache (disk-backed)
+    │   ├── directory.ex         # embedded US-ETF / US-IX / US-WT directory
+    │   └── store.ex             # long-lived GenServer that owns the cache/dir ETS tables
+    ├── trade_context.ex         # public API: orders, positions, account, executions, push
+    └── ws_connection.ex         # WebSocket GenServer (one per endpoint, Mint-based)
 protos/
+├── api.proto                    # quote + trade request/response messages
 ├── control.proto                # Auth, Heartbeat, Close
-├── quote.proto                  # Market data (securities, quotes, depth, brokers, etc.)
-└── trade.proto                  # Trade, order, notification messages
+├── error.proto                  # Error envelope
+└── subscribe.proto              # Subscribe/Unsubscribe/PushQuote/PushDepth/...
 ```
 
 ### Wire format
 
-A Longbridge frame is:
+Each WebSocket binary message is one or more **length-prefixed protocol packets** concatenated together. A single protocol packet is:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ header (11 / 10 / 5 bytes, big-endian)                      │
+│ length   (4 bytes, big-endian uint32)                       │
+├─────────────────────────────────────────────────────────────┤
+│ header   (11 / 10 / 5 bytes, big-endian)                    │
 │   type:4 │ v:1 │ g:1 │ res:2 │ cmd:8 │ ...                 │
 ├─────────────────────────────────────────────────────────────┤
-│ body   (Protobuf-encoded, ≤ 16 MiB)                        │
-├─────────────────────────────────────────────────────────────┤
-│ optional nonce (8) + signature (16)  when v=1                │
+│ body     (Protobuf-encoded, ≤ 16 MiB)                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The handshake is two fixed bytes, `<<0b00010001, 0b00001001>>` (version=1, codec=protobuf, platform=OpenAPI=9). See `Longbridge.Protocol.handshake/0`.
+The WS handshake is plain WebSocket upgrade (`wss://openapi-quote.longbridge.com`); the Longbridge protocol handshake is then sent as the **first packet** with `version=1, codec=protobuf, platform=OpenAPI=9`. See `Longbridge.Protocol.handshake/0`. The `WSConnection` module buffers and splits received binary messages so callers don't have to.
 
 ### Connection lifecycle
 
-`Longbridge.Connection` is a `GenServer` that owns the raw `:gen_tcp` socket. Its lifecycle is driven by `handle_continue/2`:
+`Longbridge.WSConnection` is a `GenServer` that owns the Mint WebSocket. Its lifecycle:
 
 ```
-init  →  do_connect  →  do_handshake  →  do_auth  (synchronous receive)  →  idle
+init  →  do_connect_and_auth  →  idle (heartbeat every heartbeat_interval, request/response pairing)
+                                  │
+                                  └─ on error / disconnect → Session.do_connect_and_auth (reconnect with back-off)
 ```
 
-After auth succeeds, the connection enters active mode, sends a heartbeat every `heartbeat_interval`, dispatches response packets to in-flight `request_id` callers, and forwards push packets to subscribed context processes.
+`Longbridge.Connection.Session` owns the transport-agnostic pieces (reconnect with exponential back-off, idle-timer scheduling, request broadcasting, push dispatch) so swapping the transport later wouldn't require rewriting them.
+
+After auth succeeds, the connection enters active mode, sends a heartbeat every `heartbeat_interval`, dispatches response packets to in-flight `request_id` callers, and forwards push packets to subscribed context processes. The connection automatically reconnects with exponential back-off after a disconnect; once reconnected, every context that has subscribed resubscribes automatically (see `Longbridge.QuoteContext` and `Longbridge.TradeContext`).
 
 ### Push data flow
 
-Contexts subscribe themselves to the connection on `start_link/2` via `Longbridge.Connection.subscribe_push/2`. When a push frame arrives:
+Contexts subscribe themselves to the connection on `start_link/2`. When a push frame arrives:
 
-1. The connection's `process_data/2` decodes the packet.
-2. The connection's `dispatch_packet/3` sends `{:longbridge, conn_pid, {:push, cmd_code, body}}` to every subscriber.
+1. The connection's `process_data/2` buffers bytes, splits on the 4-byte length prefix, and decodes the header + body.
+2. The connection's `dispatch_push/3` sends `{:longbridge, conn_pid, {:push, cmd_code, body}}` to every subscriber.
 3. Each context receives this message, re-dispatches as `{:longbridge_push, msg}` to its own caller process, and the user pattern-matches in their own process.
 
 The context's caller must be alive to receive push messages — `Longbridge.QuoteContext.start_link/2` is the right way to spawn one per long-running process.
@@ -332,7 +353,10 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 
 | Method | Sub-command | Notes |
 | --- | --- | --- |
-| `user_quote_profile/2` | `QueryUserQuoteProfile` (4) | `language` option, defaults to `"en"`. |
+| `user_quote_profile/2` | `QueryUserQuoteProfile` (4) | `language` option, defaults to `"en"`. Returns `member_id`, `quote_level`, `rate_limit`, `quote_level_detail`, `subscribe_limit`, `history_candlestick_limit`. |
+| `member_id/1` | (convenience) | Extracts `member_id` from `user_quote_profile/2`. |
+| `quote_level/1` | (convenience) | Extracts the user's quote level string (e.g. `"Lv1"`, `"Lv2"`). |
+| `quote_package_details/2` | (convenience) | Returns subscribed quote packages by market. |
 | `static_info/2` | `QuerySecurityStaticInfo` (10) | |
 | `quote/2` | `QuerySecurityQuote` (11) | |
 | `option_quote/2` | `QueryOptionQuote` (12) | |
@@ -341,8 +365,8 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 | `brokers/2` | `QueryBrokers` (15) | |
 | `participant_broker_ids/1` | `QueryParticipantBrokerIds` (16) | |
 | `trades/3` | `QueryTrade` (17) | `count` defaults to 100. |
-| `intraday/3` | `QueryIntraday` (18) | `trade_session` defaults to 0. |
-| `candlesticks/6` | `QueryCandlestick` (19) | `period` accepts `:DAY`, `:MINUTE`, `:WEEK`, etc. |
+| `intraday/3` | `QueryIntraday` (18) | `trade_session` ∈ `{:NORMAL_TRADE, :PRE_TRADE, :POST_TRADE, :OVERNIGHT_TRADE}` (or 0–3). |
+| `candlesticks/6` | `QueryCandlestick` (19) | `period` accepts `:DAY`, `:ONE_MINUTE`, `:FIVE_MINUTE`, `:WEEK`, `:MONTH`, `:QUARTER`, `:YEAR`, etc. |
 | `history_candlesticks_by_offset/3` | `QueryHistoryCandlestick` (27) | Walks forward/backward from a date. `direction: :forward | :backward`. |
 | `history_candlesticks_by_date/3` | `QueryHistoryCandlestick` (27) | Fetches within a `start_date`/`end_date` range. |
 | `option_chain_date/2` | `QueryOptionChainDate` (20) | |
@@ -360,23 +384,28 @@ Each callback receives the decoded proto struct (`Longbridge.Quote.V1.PushQuote`
 | `capital_flow_intraday/2` | `QueryCapitalFlowIntraday` (24) | |
 | `capital_flow_distribution/2` | `QueryCapitalFlowDistribution` (25) | |
 | `subscription/1` | `Subscription` (5) | |
-| `subscribe/3` | `Subscribe` (6) | `sub_types` ∈ `{:QUOTE, :DEPTH, :BROKERS, :TRADE}`. |
-| `unsubscribe/3` | `Unsubscribe` (7) | |
+| `subscribe/4` | `Subscribe` (6) | `sub_types` ∈ `{:QUOTE, :DEPTH, :BROKERS, :TRADE}`. `is_first_push: true` requests the current snapshot to be pushed immediately. |
+| `unsubscribe/4` | `Unsubscribe` (7) | `unsub_all: true` removes every subscription for those symbols. |
+
+`QuoteContext.subscribe/4` and `TradeContext.subscribe/2` both **survive reconnect** automatically: the context records every subscription and re-issues it after the WS reconnects, so push delivery resumes without any extra wiring on the caller's side.
 
 ### `Longbridge.TradeContext`
 
 All HTTP requests (`order_detail`, `today_orders`, etc.)
 automatically retry once on a `401 Unauthorized` response after
-refreshing the access token via `Config.refresh_access_token/2`.
-If the refresh fails (e.g. `invalid_grant`), the original 401
-error is returned unchanged so callers can detect a revoked
-refresh token and re-authorize.
+refreshing the access token. OAuth users must pass
+`token_refresher:` to `start_link/2` (a `(Config.t -> {:ok, Config.t} | {:error, term})`)
+so the trade context knows how to obtain a fresh token — the
+default `Config.refresh_access_token/2` only works for legacy
+app-key auth. If the refresh fails (e.g. `invalid_grant`), the
+original 401 error is returned unchanged so callers can detect a
+revoked refresh token and re-authorize.
 
 **Push & subscription**
 
 | Method | Description |
 | --- | --- |
-| `subscribe/2` | Subscribe to trade push topics (`:private` for orders) |
+| `subscribe/2` | Subscribe to trade push topics (`:private` for orders). Survives WS reconnect. |
 | `unsubscribe/2` | Unsubscribe from trade push |
 | `put_callback/3` | Register a topic-specific callback (e.g. `"/v1/trade/order_changed"`) |
 | `remove_callback/2` | Remove a topic callback |
@@ -388,27 +417,30 @@ refresh token and re-authorize.
 
 | Method | Description |
 | --- | --- |
-| `submit_order/2` | Place a new order |
+| `submit_order/2` | Place a new order (`:market | :lo | :elo | :alo | :mit | :odd | :lit | :tslpamt | :tslppct`) |
 | `replace_order/2` | Replace an existing order |
 | `cancel_order/2` | Cancel an order by ID |
-| `today_orders/2` | List today's orders |
-| `history_orders/2` | Search historical orders |
+| `today_orders/2` | List today's orders (`:status`, `:market`, `:side`, pagination) |
+| `history_orders/2` | Search historical orders (date range, status, market, side) |
 | `order_detail/2` | Get a single order by ID |
 
 **Executions** (HTTP)
 
 | Method | Description |
 | --- | --- |
-| `today_executions/2` | List today's fills |
-| `history_executions/2` | Search historical fills |
+| `today_executions/2` | List today's fills (`:symbol`, `:market`, `:start_at`, `:end_at`, pagination) |
+| `history_executions/2` | Search historical fills (date range, symbol, market, side) |
 
 **Account & positions** (HTTP)
 
 | Method | Description |
 | --- | --- |
-| `account_balance/2` | Get cash / buying power |
-| `stock_positions/2` | List stock holdings |
-| `fund_positions/2` | List fund holdings |
+| `account_balance/2` | Get cash / buying power (per currency, e.g. `"USD"`) |
+| `stock_positions/2` | List stock holdings (optional symbol filter) |
+| `fund_positions/2` | List fund holdings (optional symbol filter) |
+| `cash_flow/2` | Cash flow history within a date range |
+| `margin_ratio/2` | Initial/maintain margin ratios for a symbol |
+| `estimate_max_purchase_quantity/2` | Estimate the max qty buyable for `:LO | :ELO | :ALO | :MIT` orders |
 
 ### `Longbridge.AssetContext` (HTTP)
 
@@ -421,16 +453,16 @@ refresh token and re-authorize.
 
 | Method | Description |
 | --- | --- |
-| `trading_days/4` | Trading days between two dates |
-| `market_session/2` | Current trading session for a market |
-| `broker_holdings/2` | Broker holdings (HK stocks) |
-| `ah_premium/2` | A/H share premium data |
-| `trade_status/2` | Intraday trade status for a symbol |
-| `index_constituents/2` | Constituents of a market index |
-| `anomaly_alerts/1` | Market anomaly alerts |
-| `top_movers/2` | Stocks with anomalous 20d price movement + linked news |
+| `trading_days/4` | **Deprecated** — removed upstream; always returns `{:error, :removed_upstream}`. Use `Longbridge.CalendarContext.market_closures/2` instead. |
+| `market_session/2` | Current trading session for all markets (US/HK/CN/SG; no `market` filter — filter client-side). |
+| `broker_holdings/3` | Top broker holdings (buy/sell leaders) for a symbol. `:period` ∈ `{:rct_1, :rct_5, :rct_20, :rct_60}`. |
+| `ah_premium/2` | A/H share premium K-line data for a dual-listed H-share |
+| `trade_status/2` | Buy/sell/neutral trade statistics for a symbol |
+| `index_constituents/2` | Constituents of a market index (e.g. `"HSI.HK"`, `"/DJI.US"`) |
+| `anomaly_alerts/2` | Market anomaly alerts (trading halts, suspensions) per market |
+| `top_movers/2` | Stocks with anomalous 20d price movement + linked news. `:sort` ∈ `{:hot, :time, :change}`. Renamed from `stock_events` in longbridge/openapi 4.2.0. |
 | `rank_categories/1` | List rank categories for `rank_list/3` |
-| `rank_list/3` | Ranked securities for a category (adds `ib_` prefix automatically) |
+| `rank_list/4` | Ranked securities for a category (adds `ib_` prefix automatically) |
 
 ### `Longbridge.ContentContext` (HTTP)
 
@@ -544,6 +576,15 @@ refresh token and re-authorize.
 | `filings/2` | Regulatory filings for a symbol (returns list with `id`, `title`, `file_urls`, `publish_at`, ...) |
 | `symbol_to_counter_ids/2` | Batch-convert user symbols to internal counter_ids (HTTP-only; for local-first resolution see `Longbridge.Symbol.resolve_counter_ids/2`) |
 
+### `Longbridge.Symbol`
+
+| Method | Description |
+| --- | --- |
+| `to_counter_id/1` | Convert a user symbol (`"AAPL.US"`, `"00700.HK"`) to its internal `counter_id` (`"ST/US/AAPL"`, `"ST/HK/700"`). Uses the embedded US-ETF / US-IX / US-WT directory for known symbols and falls back to `ST/{MARKET}/{CODE}` otherwise. |
+| `index_to_counter_id/1` | Convert an index symbol (e.g. `"HSI.HK"`, `"/DJI.US"`) to its `IX/...` counter_id. |
+| `from_counter_id/1` | Inverse of `to_counter_id/1` (best-effort — some counter_ids are internal-only and have no public symbol). |
+| `resolve_counter_ids/2` | Local-first batch resolution: embedded directory → on-disk cache → server `symbol_to_counter_ids/2`. Results for unknown symbols are cached in `$LONGBRIDGE_CACHE_DIR/counter-ids.csv`. |
+
 ### Push command codes (consumer-side)
 
 | Code | Message | Decode with |
@@ -553,6 +594,13 @@ refresh token and re-authorize.
 | 103 | `PushBrokers` | `Longbridge.Quote.V1.PushBrokers` |
 | 104 | `PushTrade` | `Longbridge.Quote.V1.PushTrade` |
 | 18  | `Notification` (trade) | `Longbridge.Trade.V1.Notification` |
+
+### Errors and reconnect behavior
+
+- Every public function returns `{:ok, value} | {:error, reason}` so callers never see raw exceptions from the wire layer. `Protox.decode!/2` errors are caught and returned as `{:error, {:decode_error, exception}}`.
+- HTTP `401 Unauthorized` responses from `Longbridge.HTTPClient.request/5` are **automatically retried once** after a token refresh when called with `refresh_on_401: true` (the default for the TradeContext). The refreshed config is kept on the connection state so subsequent requests use it without another refresh.
+- The WS connection (`Longbridge.WSConnection`) reconnects with exponential back-off (capped) after any disconnect or auth failure. Both `QuoteContext` and `TradeContext` re-apply their recorded push subscriptions on reconnect, so you do not need to call `subscribe/4` again after a network blip.
+- `Longbridge.HTTPClient.refresh_access_token/1` (used by the legacy API-key flow) updates both `token` and `expired_at` on the config so the next call doesn't refresh again.
 
 ## Development
 

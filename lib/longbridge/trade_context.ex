@@ -2,43 +2,64 @@ defmodule Longbridge.TradeContext do
   @moduledoc """
   Trade context for Longbridge trading APIs.
 
-  Manages a TCP connection to the trade endpoint for push
-  subscriptions and provides HTTP-based APIs for order
-  submission, order queries, account balance, positions,
-  executions, and cash flow.
+  Manages a WebSocket connection to the trade endpoint for push
+  subscriptions (order-changed events) and provides HTTP-based APIs
+  for order submission, order queries, account balance, positions,
+  executions, cash flow, and risk checks.
 
   ## Usage
 
       {:ok, ctx} = Longbridge.TradeContext.start_link(config)
 
-      # Submit an order
+      # Submit a limit order
       {:ok, %{"order_id" => order_id}} =
         Longbridge.TradeContext.submit_order(ctx,
-          symbol: "700.HK",
+          symbol: "00700.HK",
           side: :buy,
           order_type: :lo,
           submitted_quantity: "100",
           time_in_force: :day,
-          submitted_price: "50.00"
+          submitted_price: "375.00"
         )
 
-      # Get today's orders
+      # Cancel it
+      {:ok, _} = Longbridge.TradeContext.cancel_order(ctx, order_id)
+
+      # Today's orders
       {:ok, %{"orders" => orders}} =
         Longbridge.TradeContext.today_orders(ctx)
 
-      # Account balance
+      # Account balance (USD)
       {:ok, %{"list" => balances}} =
-        Longbridge.TradeContext.account_balance(ctx)
+        Longbridge.TradeContext.account_balance(ctx, "USD")
 
   ## Push events
 
-  Subscribe to order status push after starting:
+  Subscribe after starting:
 
-      {:ok, ctx} = Longbridge.TradeContext.start_link(config)
       :ok = Longbridge.TradeContext.subscribe(ctx, [:private])
+      :ok = Longbridge.TradeContext.set_on_order_changed(ctx, fn event ->
+        IO.inspect(event, label: "order changed")
+      end)
 
-  Events arrive as `{:longbridge_push, {dispatch_type, body}}`
-  messages in the caller's mailbox.
+  Subscriptions are recorded on the context state and **re-issued
+  automatically after a WS reconnect**. Order-changed events arrive
+  as `{:longbridge_push, ...}` messages in the caller's mailbox and
+  fire the registered `:order_changed` callback.
+
+  ## Two transports
+
+  `start_link/2` splits the config into:
+
+    * `state.ws_config` — `Longbridge.Config.with_socket_token/1` applied, used
+      to authenticate the Mint WebSocket. Auth uses the OTP, not the
+      long-lived access token.
+    * `state.http_config` — the original config, used to sign REST
+      requests with HMAC-SHA256. HTTP `401 Unauthorized` responses
+      are automatically retried once after a token refresh.
+
+  For OAuth users, inject `token_refresher:` to `start_link/2` so
+  the context can refresh the long-lived token after a 401.
   """
 
   use GenServer
@@ -68,13 +89,60 @@ defmodule Longbridge.TradeContext do
 
   # ── Client API ──────────────────────────────────────────
 
-  @doc "Starts a TradeContext linked to the calling process."
+  @doc """
+  Starts a TradeContext linked to the calling process.
+
+  The context owns both:
+
+    * a `Longbridge.WSConnection` to `config.trade_ws_url` for push
+      subscriptions (order-changed events, etc.). Auth uses the OTP
+      from `Longbridge.Config.with_socket_token/1`.
+    * a per-instance HTTP config for signed REST requests (orders,
+      account, executions, positions, cash flow). The original
+      `config.token` is kept on `state.http_config` so HTTP requests
+      sign with the long-lived access token, while WS auth uses the
+      OTP from `ws_config`.
+
+  ## Options
+
+    * `:name` — registered process name, passed through to
+      `GenServer.start_link/3`.
+    * `:token_refresher` — `nil` (default) or a 1-arity function that
+      refreshes the HTTP access token. The default uses
+      `Longbridge.Config.refresh_access_token/1`, which only works
+      for legacy app-key auth. **OAuth users must inject a custom
+      refresher** that performs the `refresh_token` grant.
+    * `:skip_connection` — when `true`, skip WS startup (HTTP-only
+      context). Used by tests; not part of the stable API.
+    * Any other `GenServer` option (`:timeout`, `:spawn_opt`, ...).
+
+  ## Example
+
+      {:ok, ctx} =
+        Longbridge.TradeContext.start_link(config,
+          token_refresher: fn cfg ->
+            with {:ok, %OAuth.Token{access_token: t, expires_at: exp}} <-
+                   MyApp.OAuth.refresh(cfg.client_id) do
+              {:ok, %{cfg | token: t, expired_at: exp}}
+            end
+          end
+        )
+  """
   @spec start_link(Config.t(), keyword()) :: GenServer.on_start()
   def start_link(config, opts \\ []) do
     GenServer.start_link(__MODULE__, {config, opts}, opts)
   end
 
-  @doc "Returns the current session info from the underlying WS connection."
+  @doc """
+  Returns the current WS session info.
+
+  Returns `{:ok, session_id, heartbeat_interval_ms}` once the
+  underlying `Longbridge.WSConnection` has finished authenticating,
+  or `{:ok, nil, nil}` before auth completes.
+
+  `session_id` is the opaque string assigned by the Longbridge
+  backend (e.g. `"15766270:21526413:..."`).
+  """
   @spec session(pid()) :: {:ok, String.t() | nil, integer() | nil} | {:error, term()}
   def session(pid) do
     GenServer.call(pid, :session)
@@ -127,7 +195,17 @@ defmodule Longbridge.TradeContext do
     http_put(pid, "/v1/trade/order", body)
   end
 
-  @doc "Cancels an order by its order_id."
+  @doc """
+  Cancels an order by `order_id`.
+
+  Returns `{:ok, %{}}` (the API responds with a 200 + empty body on
+  success). If the order is already in a terminal state
+  (`:filled`, `:cancelled`), the API returns an error that surfaces
+  as `{:error, reason}` — check it before reporting success to the
+  caller.
+
+  Endpoint: `DELETE /v1/trade/order`
+  """
   @spec cancel_order(pid(), String.t()) :: {:ok, map()} | {:error, term()}
   def cancel_order(pid, order_id) do
     http_delete(pid, "/v1/trade/order", %{order_id: order_id})
@@ -162,7 +240,14 @@ defmodule Longbridge.TradeContext do
     http_get(pid, "/v1/trade/order/history", params)
   end
 
-  @doc "Returns the detail for a single order."
+  @doc """
+  Returns the full state for a single order.
+
+  Endpoint: `GET /v1/trade/order?order_id=<id>`. Includes current
+  status, filled quantity, average fill price, fees, and timestamps.
+  Use `today_orders/2` (or `history_orders/2`) to find the order_id
+  if you don't have it.
+  """
   @spec order_detail(pid(), String.t()) :: {:ok, map()} | {:error, term()}
   def order_detail(pid, order_id) do
     http_get(pid, "/v1/trade/order", %{order_id: order_id})
@@ -246,7 +331,15 @@ defmodule Longbridge.TradeContext do
 
   # ── Margin ──────────────────────────────────────────────
 
-  @doc "Returns the margin ratio for a given symbol."
+  @doc """
+  Returns the initial/maintain margin ratios for a symbol.
+
+  Endpoint: `GET /v1/risk/margin-ratio?symbol=<s>`. Useful for
+  margin checks before submitting levered orders. The response has
+  `im_factor` (initial margin factor), `mm_factor` (maintain margin
+  factor), `fm_factor`, `mcm_factor`, `short_im_factor`, and
+  `short_fm_factor` — all decimal strings.
+  """
   @spec margin_ratio(pid(), String.t()) :: {:ok, map()} | {:error, term()}
   def margin_ratio(pid, symbol) do
     http_get(pid, "/v1/risk/margin-ratio", %{symbol: symbol})
@@ -288,7 +381,13 @@ defmodule Longbridge.TradeContext do
     GenServer.call(pid, {:subscribe, topics})
   end
 
-  @doc "Unsubscribes from trade push data."
+  @doc """
+  Unsubscribes from trade push topics.
+
+  `topics` is a list of atoms; currently `:private` is the only
+  supported value (it controls order-changed events). Passing an
+  empty list is a no-op. Mirrors `Unsubscribe` (cmd_code 17).
+  """
   @spec unsubscribe(pid(), [atom()]) :: :ok | {:error, term()}
   def unsubscribe(pid, topics \\ [:private]) do
     GenServer.call(pid, {:unsubscribe, topics})
@@ -337,7 +436,10 @@ defmodule Longbridge.TradeContext do
     put_callback(pid, @order_changed_topic, callback)
   end
 
-  @doc "Alias for `set_on_order_changed/2`."
+  @doc """
+  Alias for `set_on_order_changed/2`. Mirrors the upstream
+  `OnOrderChanged` method name.
+  """
   @spec on_order_changed(pid(), (map() -> any())) :: :ok
   def on_order_changed(pid, callback), do: set_on_order_changed(pid, callback)
 

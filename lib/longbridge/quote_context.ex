@@ -94,13 +94,38 @@ defmodule Longbridge.QuoteContext do
 
   # ── Client API ───────────────────────────────────────────
 
-  @doc "Starts a QuoteContext linked to the calling process."
+  @doc """
+  Starts a QuoteContext linked to the calling process.
+
+  The context owns a `Longbridge.WSConnection` (one Mint WebSocket to
+  `config.quote_ws_url`) and a per-instance `RealtimeStore` for cached
+  push data. The caller is automatically subscribed to push frames.
+
+  ## Options
+
+    * `:name` — registered process name, passed through to `GenServer.start_link/3`.
+    * Any other `GenServer` option (`:timeout`, `:spawn_opt`, `:hibernate_after`, ...).
+
+  ## Example
+
+      {:ok, ctx} = Longbridge.QuoteContext.start_link(config)
+
+  """
   @spec start_link(Config.t(), keyword()) :: GenServer.on_start()
   def start_link(config, opts \\ []) do
     GenServer.start_link(__MODULE__, {config, opts}, opts)
   end
 
-  @doc "Returns the current session info."
+  @doc """
+  Returns the current WS session info.
+
+  Returns `{:ok, session_id, heartbeat_interval_ms}` once the
+  underlying `Longbridge.WSConnection` has finished authenticating.
+  Returns `{:ok, nil, nil}` before auth completes.
+
+  `session_id` is the opaque string assigned by the Longbridge
+  backend (e.g. `"15766270:21526413:1eef69007cb60d68d6111f7ea02b7531"`).
+  """
   @spec session(pid()) :: {:ok, String.t(), integer()} | {:error, term()}
   def session(pid) do
     GenServer.call(pid, :session)
@@ -195,55 +220,125 @@ defmodule Longbridge.QuoteContext do
 
   # ── Quote API Methods ────────────────────────────────────
 
-  @doc "Queries security static info for given symbols."
+  @doc """
+  Returns static metadata for one or more symbols.
+
+  Endpoint: cmd_code 10 (`QuerySecurityStaticInfo`).
+
+  Each entry in `response.secu_static_info` contains the listing
+  exchange, lot size, board, underlying symbol, etc. Mirrors
+  `QuoteContext::static_info` from `longbridge/openapi/rust`.
+
+  ## Example
+
+      {:ok, %{secu_static_info: [%{symbol: "AAPL.US", name_en: "Apple Inc."} | _]}} =
+        Longbridge.QuoteContext.static_info(ctx, ["AAPL.US"])
+  """
   @spec static_info(pid(), [String.t()]) :: {:ok, struct()} | {:error, term()}
   def static_info(pid, symbols) do
     req = %Q.MultiSecurityRequest{symbol: symbols}
     request(pid, @cmd_security_static_info, req, Q.SecurityStaticInfoResponse)
   end
 
-  @doc "Queries real-time security quotes."
+  @doc """
+  Returns a real-time snapshot quote for one or more symbols.
+
+  Endpoint: cmd_code 11 (`QuerySecurityQuote`). One-shot request; for
+  a continuously-updating view, subscribe via `subscribe/4` with
+  `:QUOTE` and read the local cache with `realtime_quote/2`.
+
+  The server gzips the response when the body crosses its internal
+  size threshold — `Longbridge.Protocol.unpack/1` transparently
+  decompresses it.
+
+  ## Example
+
+      {:ok, %{secu_quote: [%{symbol: "AAPL.US", last_done: "282.50", ...} | _]}} =
+        Longbridge.QuoteContext.quote(ctx, ["AAPL.US"])
+  """
   @spec quote(pid(), [String.t()]) :: {:ok, struct()} | {:error, term()}
   def quote(pid, symbols) do
     req = %Q.MultiSecurityRequest{symbol: symbols}
     request(pid, @cmd_security_quote, req, Q.SecurityQuoteResponse)
   end
 
-  @doc "Queries option quotes."
+  @doc """
+  Returns option quotes (greeks + theoretical price) for one or more
+  option symbols.
+
+  Endpoint: cmd_code 12 (`QueryOptionQuote`). The `symbol` entries
+  must be **option** symbols (`"AAPL250117C150000.US"`), not the
+  underlying equity.
+  """
   @spec option_quote(pid(), [String.t()]) :: {:ok, struct()} | {:error, term()}
   def option_quote(pid, symbols) do
     req = %Q.MultiSecurityRequest{symbol: symbols}
     request(pid, @cmd_option_quote, req, Q.OptionQuoteResponse)
   end
 
-  @doc "Queries warrant quotes."
+  @doc """
+  Returns warrant quotes for one or more warrant symbols.
+
+  Endpoint: cmd_code 13 (`QueryWarrantQuote`). Same caveat as
+  `option_quote/2` — `symbols` are warrant IDs, not the underlying
+  equity.
+  """
   @spec warrant_quote(pid(), [String.t()]) :: {:ok, struct()} | {:error, term()}
   def warrant_quote(pid, symbols) do
     req = %Q.MultiSecurityRequest{symbol: symbols}
     request(pid, @cmd_warrant_quote, req, Q.WarrantQuoteResponse)
   end
 
-  @doc "Queries market depth (order book) for a security."
+  @doc """
+  Returns the order book (market depth) for a single symbol.
+
+  Endpoint: cmd_code 14 (`QueryDepth`). Returns the current top-of-book
+  snapshot; subscribe to `:DEPTH` push for a continuously-updating view.
+
+  Each `ask` / `bid` entry is `[price_cents, volume, order_count]`
+  where `price_cents` is a decimal string.
+  """
   @spec depth(pid(), String.t()) :: {:ok, struct()} | {:error, term()}
   def depth(pid, symbol) do
     req = %Q.SecurityRequest{symbol: symbol}
     request(pid, @cmd_depth, req, Q.SecurityDepthResponse)
   end
 
-  @doc "Queries broker queue for a security."
+  @doc """
+  Returns the broker queue (top 10 bid/ask brokers) for a symbol.
+
+  Endpoint: cmd_code 15 (`QueryBrokers`). Each broker id can be looked
+  up against `participant_broker_ids/1`.
+  """
   @spec brokers(pid(), String.t()) :: {:ok, struct()} | {:error, term()}
   def brokers(pid, symbol) do
     req = %Q.SecurityRequest{symbol: symbol}
     request(pid, @cmd_brokers, req, Q.SecurityBrokersResponse)
   end
 
-  @doc "Queries broker participant IDs."
+  @doc """
+  Returns the broker participant ID list for the current session's
+  market.
+
+  Endpoint: cmd_code 16 (`QueryParticipantBrokerIds`). The returned
+  id list is what `brokers/2` indexes into. Mirrors
+  `ParticipantBrokerIds` from `longbridge/openapi-go`.
+  """
   @spec participant_broker_ids(pid()) :: {:ok, struct()} | {:error, term()}
   def participant_broker_ids(pid) do
     request_empty(pid, @cmd_participant_broker_ids, Q.ParticipantBrokerIdsResponse)
   end
 
-  @doc "Queries recent trades for a security."
+  @doc """
+  Returns the most recent `count` trades (tick data) for a symbol.
+
+  Endpoint: cmd_code 17 (`QueryTrade`). Each entry has
+  `price_cents`, `volume`, `timestamp`, `trade_type` (0 = `?`, 1 = `?`,
+  see upstream docs), and `direction` (`-1`/`0`/`+1`).
+
+  For a live, capped-at-500 tail, subscribe to `:TRADE` push and read
+  `realtime_trades/3`.
+  """
   @spec trades(pid(), String.t(), non_neg_integer()) :: {:ok, struct()} | {:error, term()}
   def trades(pid, symbol, count \\ 100) do
     req = %Q.SecurityTradeRequest{symbol: symbol, count: count}
@@ -415,14 +510,27 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_history_candlestick, req, Q.SecurityCandlestickResponse)
   end
 
-  @doc "Queries option chain expiry dates for an underlying."
+  @doc """
+  Returns the option chain expiry dates available for an underlying.
+
+  Endpoint: cmd_code 20 (`QueryOptionChainDate`). Each entry in
+  `expiry_date` is a date string the server accepts as the
+  `expiry_date` argument to `option_chain_strike_info/3`.
+  """
   @spec option_chain_date(pid(), String.t()) :: {:ok, struct()} | {:error, term()}
   def option_chain_date(pid, symbol) do
     req = %Q.SecurityRequest{symbol: symbol}
     request(pid, @cmd_option_chain_date, req, Q.OptionChainDateListResponse)
   end
 
-  @doc "Queries option chain strike info for a date."
+  @doc """
+  Returns option chain strike info (price, OI, volume) for an
+  underlying on a specific expiry date.
+
+  Endpoint: cmd_code 21 (`QueryOptionChainDateStrikeInfo`).
+  `expiry_date` must be one of the values returned by
+  `option_chain_date/2`.
+  """
   @spec option_chain_strike_info(pid(), String.t(), String.t()) ::
           {:ok, struct()} | {:error, term()}
   def option_chain_strike_info(pid, symbol, expiry_date) do
@@ -430,7 +538,12 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_option_chain_date_strike_info, req, Q.OptionChainDateStrikeInfoResponse)
   end
 
-  @doc "Queries warrant issuer info."
+  @doc """
+  Returns the list of warrant issuers with their numeric ids.
+
+  Endpoint: cmd_code 22 (`QueryWarrantIssuerInfo`). Pass these ids in
+  the `:issuer` list of `warrant_list/2` to filter by issuer.
+  """
   @spec warrant_issuer_info(pid()) :: {:ok, struct()} | {:error, term()}
   def warrant_issuer_info(pid) do
     request_empty(pid, @cmd_warrant_issuer_info, Q.IssuerInfoResponse)
@@ -550,7 +663,13 @@ defmodule Longbridge.QuoteContext do
     GenServer.call(pid, :reset_realtime_cache)
   end
 
-  @doc "Queries market trade period information."
+  @doc """
+  Returns the current market trade-period metadata for the session
+  (open/close timestamps, timezone, etc.).
+
+  Endpoint: cmd_code 8 (`QueryMarketTradePeriod`). One-shot; for a
+  specific day's calendar, use `market_trade_day/4`.
+  """
   @spec market_trade_period(pid()) :: {:ok, struct()} | {:error, term()}
   def market_trade_period(pid) do
     request_empty(pid, @cmd_market_trade_period, Q.MarketTradePeriodResponse)
@@ -575,28 +694,55 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_market_trade_day, req, Q.MarketTradeDayResponse)
   end
 
-  @doc "Queries security calc indexes."
+  @doc """
+  Returns precomputed calc indexes for one or more symbols.
+
+  Endpoint: cmd_code 26 (`QuerySecurityCalcIndex`). `calc_indexes`
+  is a list of upstream-defined integers (see the
+  `SecurityCalcIndex` enum in `protos/api.proto`); the most common
+  values are listed in the upstream docs at
+  `https://open.longbridge.com/docs/quote/pull/calc-index`.
+  """
   @spec calc_index(pid(), [String.t()], [non_neg_integer()]) :: {:ok, struct()} | {:error, term()}
   def calc_index(pid, symbols, calc_indexes) do
     req = %Q.SecurityCalcQuoteRequest{symbols: symbols, calc_index: calc_indexes}
     request(pid, @cmd_security_calc_index, req, Q.SecurityCalcQuoteResponse)
   end
 
-  @doc "Queries capital flow intraday."
+  @doc """
+  Returns intraday capital flow lines (large/small/medium order
+  net inflow) for a single symbol.
+
+  Endpoint: cmd_code 24 (`QueryCapitalFlowIntraday`). For HK/CN
+  symbols only.
+  """
   @spec capital_flow_intraday(pid(), String.t()) :: {:ok, struct()} | {:error, term()}
   def capital_flow_intraday(pid, symbol) do
     req = %Q.CapitalFlowIntradayRequest{symbol: symbol}
     request(pid, @cmd_capital_flow_intraday, req, Q.CapitalFlowIntradayResponse)
   end
 
-  @doc "Queries capital flow distribution."
+  @doc """
+  Returns the capital flow size-bucket distribution
+  (super-large / large / medium / small) for a single symbol.
+
+  Endpoint: cmd_code 25 (`QueryCapitalFlowDistribution`). For
+  HK/CN symbols only.
+  """
   @spec capital_flow_distribution(pid(), String.t()) :: {:ok, struct()} | {:error, term()}
   def capital_flow_distribution(pid, symbol) do
     req = %Q.SecurityRequest{symbol: symbol}
     request(pid, @cmd_capital_flow_distribution, req, Q.CapitalDistributionResponse)
   end
 
-  @doc "Queries current subscriptions."
+  @doc """
+  Returns the list of subscriptions currently active on the WS
+  connection.
+
+  Endpoint: cmd_code 5 (`Subscription`). Useful for verifying that
+  `subscribe/4` actually landed at the server, and for re-syncing
+  state after a reconnect if you're not relying on the auto-resubscribe.
+  """
   @spec subscription(pid()) :: {:ok, struct()} | {:error, term()}
   def subscription(pid) do
     req = %Q.SubscriptionRequest{}
@@ -604,25 +750,64 @@ defmodule Longbridge.QuoteContext do
   end
 
   @doc """
-  Subscribes to real-time push data.
+  Subscribes to real-time push data for one or more symbols.
 
-  `sub_types` can include: `:QUOTE`, `:DEPTH`, `:BROKERS`, `:TRADE`
+  Endpoint: cmd_code 6 (`Subscribe`). Records the subscription
+  internally so it is **re-issued automatically after a WS reconnect**;
+  callers do not need to re-subscribe after a network blip.
 
-  Push data is received as messages in the calling process:
-  `{:longbridge, conn_pid, {:push, cmd_code, protobuf_body}}`
+  ## Arguments
+
+    * `symbols` — user-facing symbols (`"AAPL.US"`, `"00700.HK"`).
+    * `sub_types` — list of atoms from `:QUOTE`, `:DEPTH`, `:BROKERS`, `:TRADE`.
+      The same (symbols, sub_types) tuple is idempotent: subscribing
+      twice is a no-op on the server.
+    * `is_first_push` — when `true` (default), the server immediately
+      pushes the current snapshot for each subscribed type. Pass
+      `false` if you only want deltas after the subscribe lands.
+
+  ## Push delivery
+
+  Push data is delivered three ways:
+
+    1. **Mailbox** — every subscriber of the underlying
+       `Longbridge.WSConnection` receives
+       `{:longbridge, conn_pid, {:push, cmd_code, body}}`. The context
+       forwards this to the caller as `{:longbridge_push, msg}`.
+    2. **Local cache** — `realtime_quote/2`, `realtime_depth/2`,
+       `realtime_brokers/2`, and `realtime_trades/3` read the latest
+       value without blocking on the server.
+    3. **Typed callbacks** — `set_on_quote/2`, `set_on_depth/2`,
+       `set_on_brokers/2`, `set_on_trades/2` (or `set_default_push_callback/2`
+       for any topic).
 
   Push command codes:
-  - 101 — Quote push (`Longbridge.Quote.V1.PushQuote`)
-  - 102 — Depth push (`Longbridge.Quote.V1.PushDepth`)
-  - 103 — Broker push (`Longbridge.Quote.V1.PushBrokers`)
-  - 104 — Trade push (`Longbridge.Quote.V1.PushTrade`)
+
+    | Code | Message | Decode with |
+    | --- | --- | --- |
+    | 101 | `PushQuote` | `Longbridge.Quote.V1.PushQuote` |
+    | 102 | `PushDepth` | `Longbridge.Quote.V1.PushDepth` |
+    | 103 | `PushBrokers` | `Longbridge.Quote.V1.PushBrokers` |
+    | 104 | `PushTrade` | `Longbridge.Quote.V1.PushTrade` |
+
+  ## Example
+
+      :ok = QuoteContext.set_on_quote(ctx, fn push -> IO.inspect(push) end)
+      :ok = QuoteContext.subscribe(ctx, ["AAPL.US"], [:QUOTE], true)
+
   """
   @spec subscribe(pid(), [String.t()], [sub_type()], boolean()) :: :ok | {:error, term()}
   def subscribe(pid, symbols, sub_types, is_first_push \\ true) do
     GenServer.call(pid, {:subscribe, symbols, sub_types, is_first_push})
   end
 
-  @doc "Unsubscribes from push data."
+  @doc """
+  Unsubscribes from push data.
+
+  `unsub_all: true` removes every subscription for those symbols
+  across all sub-types (server-side ignores `sub_types` when set).
+  Mirrors `Unsubscribe` (cmd_code 7) in `longbridge/openapi-go`.
+  """
   @spec unsubscribe(pid(), [String.t()], [sub_type()], boolean()) :: :ok | {:error, term()}
   def unsubscribe(pid, symbols, sub_types, unsub_all \\ false) do
     GenServer.call(pid, {:unsubscribe, symbols, sub_types, unsub_all})
@@ -631,11 +816,11 @@ defmodule Longbridge.QuoteContext do
   @doc """
   Sets a callback invoked on each `PushQuote` push event.
 
-  The callback receives a `Longbridge.Quote.V1.PushQuote` struct.
-  Set this **before** `subscribe/4` so you don't miss events.
-  Replaces any callback previously set for the `:quote` topic.
-
-  Mirrors `QuoteContext::on_quote` from `longbridge/openapi-go`.
+  The callback receives a `%Longbridge.Quote.V1.PushQuote{}` struct.
+  Set this **before** `subscribe/4` (with `is_first_push: true`) so
+  you don't miss events. Replaces any callback previously set for the
+  `:quote` topic. Mirrors `QuoteContext::on_quote` from
+  `longbridge/openapi-go`.
   """
   @spec set_on_quote(pid(), (map() -> any())) :: :ok
   def set_on_quote(pid, callback) when is_function(callback, 1) do
@@ -645,7 +830,8 @@ defmodule Longbridge.QuoteContext do
   @doc """
   Sets a callback invoked on each `PushDepth` push event.
 
-  The callback receives a `Longbridge.Quote.V1.PushDepth` struct.
+  The callback receives a `%Longbridge.Quote.V1.PushDepth{}` struct.
+  Mirrors `QuoteContext::on_depth` from `longbridge/openapi-go`.
   """
   @spec set_on_depth(pid(), (map() -> any())) :: :ok
   def set_on_depth(pid, callback) when is_function(callback, 1) do
@@ -655,7 +841,8 @@ defmodule Longbridge.QuoteContext do
   @doc """
   Sets a callback invoked on each `PushBrokers` push event.
 
-  The callback receives a `Longbridge.Quote.V1.PushBrokers` struct.
+  The callback receives a `%Longbridge.Quote.V1.PushBrokers{}` struct.
+  Mirrors `QuoteContext::on_brokers` from `longbridge/openapi-go`.
   """
   @spec set_on_brokers(pid(), (map() -> any())) :: :ok
   def set_on_brokers(pid, callback) when is_function(callback, 1) do
@@ -665,14 +852,18 @@ defmodule Longbridge.QuoteContext do
   @doc """
   Sets a callback invoked on each `PushTrade` push event.
 
-  The callback receives a `Longbridge.Quote.V1.PushTrade` struct.
+  The callback receives a `%Longbridge.Quote.V1.PushTrade{}` struct.
+  Mirrors `QuoteContext::on_trades` from `longbridge/openapi-go`.
   """
   @spec set_on_trades(pid(), (map() -> any())) :: :ok
   def set_on_trades(pid, callback) when is_function(callback, 1) do
     put_push_callback(pid, :trade, callback)
   end
 
-  @doc "Alias for `set_on_trades/2` (matches upstream `OnTrade`)."
+  @doc """
+  Alias for `set_on_trades/2`. Mirrors the upstream `OnTrade` method
+  in `longbridge/openapi-go`.
+  """
   @spec on_trade(pid(), (map() -> any())) :: :ok
   def on_trade(pid, callback), do: set_on_trades(pid, callback)
 
@@ -688,7 +879,14 @@ defmodule Longbridge.QuoteContext do
     GenServer.cast(pid, {:put_push_callback, topic, callback})
   end
 
-  @doc "Removes the callback for a push topic."
+  @doc """
+  Removes the callback for a push topic (`:quote`, `:depth`,
+  `:brokers`, `:trade`, or a custom topic registered via
+  `put_push_callback/3`).
+
+  After removal, no callback fires for `topic`; the default callback
+  (if set via `set_default_push_callback/2`) still does.
+  """
   @spec remove_push_callback(pid(), atom() | String.t()) :: :ok
   def remove_push_callback(pid, topic) do
     GenServer.cast(pid, {:remove_push_callback, topic})
@@ -697,6 +895,11 @@ defmodule Longbridge.QuoteContext do
   @doc """
   Sets a fallback callback invoked for any push topic without a
   registered handler.
+
+  Useful when you want one function to handle every push type during
+  bring-up or when you don't know the topic key up front (e.g. for
+  custom server topics). The callback receives the raw decoded struct
+  for the push event.
   """
   @spec set_default_push_callback(pid(), (map() -> any())) :: :ok
   def set_default_push_callback(pid, callback) when is_function(callback, 1) do

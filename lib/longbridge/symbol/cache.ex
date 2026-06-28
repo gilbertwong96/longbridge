@@ -1,10 +1,13 @@
 defmodule Longbridge.Symbol.Cache do
-  @moduledoc false
-  # Runtime-resolved counter_ids persisted to
-  # `$LONGBRIDGE_CACHE_DIR/counter-ids.csv` (default
-  # `~/.longbridge/cache/counter-ids.csv`). One counter_id per line,
-  # mirroring the format of the embedded directory files in
-  # `priv/counter_ids/`.
+  @moduledoc """
+  Runtime-resolved counter_id cache.
+
+  Persisted to `$LONGBRIDGE_CACHE_DIR/counter-ids.csv` (default
+  `~/.longbridge/cache/counter-ids.csv`). One counter_id per line,
+  in the format `SYMBOL,COUNTER_ID`, mirroring the format of the
+  embedded directory files in `priv/counter_ids/`. The table is owned
+  by `Longbridge.Symbol.Store` so it survives short-lived callers.
+  """
 
   @ets :longbridge_symbol_cache
 

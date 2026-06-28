@@ -56,7 +56,16 @@ defmodule Longbridge.AssetContext do
   @doc """
   Gets a presigned download URL for a statement file.
 
-  `file_key` comes from the `statements/2` response.
+  `file_key` comes from the `statements/2` response (the `"file_key"`
+  field of each list entry).
+
+  Endpoint: `GET /v1/statement/download?file_key=<key>`. The returned
+  URL is short-lived and points at the Longbridge file store; fetch it
+  with a regular HTTP client (not `Longbridge.HTTPClient`) before it
+  expires.
+
+  Returns `{:ok, %{"url" => url, "expire_at" => unix_seconds}}` or
+  `{:error, reason}`.
   """
   @spec download_url(Config.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}

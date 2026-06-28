@@ -125,7 +125,29 @@ defmodule Longbridge.Symbol do
   end
 
   @doc """
-  Convert a user-supplied symbol to its internal `counter_id`.
+  Convert a user-supplied symbol (`"AAPL.US"`, `"00700.HK"`) to its
+  internal `counter_id` (`"ST/US/AAPL"`, `"ST/HK/700"`).
+
+  Mirrors the upstream `Symbol::to_counter_id` helper from
+  `longbridge/openapi/rust` (the SDK vendored US-ETF / US-IX /
+  US-WT directory lives in `priv/counter_ids/` and is loaded by
+  `Longbridge.Symbol.Directory`).
+
+  Rules:
+
+    * `AAPL.US`, `TSLA.US` — looked up in the embedded directory for
+      a specific counter_id (mostly relevant for ETFs and warrants
+      that have non-`ST/US/<CODE>` ids). If unknown, returns
+      `ST/US/<CODE>`.
+    * `00700.HK` — leading zeros stripped → `ST/HK/700`.
+    * `600000.SH` / `000001.SZ` — leading zeros kept →
+      `ST/SH/600000` / `ST/SZ/000001`.
+    * `/DJI.US` — leading-dot index symbol → `IX/US/DJI`.
+    * Anything without a `.` — returned unchanged (caller bug).
+
+  The result is purely local (no network). For an authoritative
+  resolution when the symbol is unknown locally, use
+  `resolve_counter_ids/2`, which falls back to the server.
   """
   @spec to_counter_id(String.t()) :: String.t()
   def to_counter_id(symbol) when is_binary(symbol) do
@@ -147,8 +169,17 @@ defmodule Longbridge.Symbol do
   def to_counter_id(symbol), do: symbol
 
   @doc """
-  Convert a user-supplied index symbol (`HSI.HK`, `.DJI.US`) to its
-  counter_id, always using the `IX/` prefix.
+  Convert a user-supplied index symbol (`"HSI.HK"`, `"/DJI.US"`,
+  `"SPX.US"`) to its counter_id, always using the `IX/` prefix.
+
+  Leading zeros are stripped from the index code where they appear
+  (mirroring `Symbol::to_counter_id` for `IX/...`). Examples:
+
+      iex> Longbridge.Symbol.index_to_counter_id("HSI.HK")
+      "IX/HK/HSI"
+
+      iex> Longbridge.Symbol.index_to_counter_id(".DJI.US")
+      "IX/US/DJI"
   """
   @spec index_to_counter_id(String.t()) :: String.t()
   def index_to_counter_id(symbol) when is_binary(symbol) do
@@ -159,8 +190,19 @@ defmodule Longbridge.Symbol do
   end
 
   @doc """
-  Convert a counter_id (e.g. `ST/US/AAPL`, `IX/HK/HSI`) back to its
-  user-facing display symbol.
+  Convert a counter_id (e.g. `"ST/US/AAPL"`, `"IX/HK/HSI"`) back to
+  its user-facing display symbol.
+
+  This is best-effort and intended for log messages / debugging.
+  Some internal counter_ids (e.g. `ST/HK/<4-digit-code>` for HK
+  warrants) have no public equivalent — the input is returned
+  unchanged in that case.
+
+      iex> Longbridge.Symbol.from_counter_id("ST/US/AAPL")
+      "AAPL.US"
+
+      iex> Longbridge.Symbol.from_counter_id("IX/HK/HSI")
+      "HSI.HK"
   """
   @spec from_counter_id(String.t()) :: String.t()
   def from_counter_id(counter_id) when is_binary(counter_id) do
