@@ -76,19 +76,40 @@ defmodule Longbridge.Symbol.Cache do
 
   @spec ensure_loaded() :: :ok
   defp ensure_loaded do
-    case :ets.info(@ets) do
-      :undefined ->
-        # :public so any process can read/write; the table lives as long
-        # as the BEAM does. In test environments each test process may
-        # end up owning its own table, but production usage from a long-
-        # lived supervised process shares a single table.
-        _ = :ets.new(@ets, [:set, :named_table, :public, read_concurrency: true])
-        load_from_disk()
-        :ok
+    Longbridge.Symbol.Store.ensure_cache()
+  end
 
-      _other ->
-        :ok
+  @doc false
+  # The ETS table name. Exposed so tests can inspect ownership without
+  # hardcoding the internal atom.
+  @spec table() :: atom()
+  def table, do: @ets
+
+  @doc false
+  # Creates the cache ETS table and loads it from disk. The table is
+  # registered to the calling process, so this is invoked by
+  # `Longbridge.Symbol.Store` (a long-lived GenServer) to keep the table
+  # alive across arbitrary caller death. Never raises: a missing cache
+  # file is a normal cold-start condition.
+  @spec create_and_load() :: :ok
+  def create_and_load do
+    _ = :ets.new(@ets, [:set, :named_table, :public, read_concurrency: true])
+    load_from_disk()
+    :ok
+  end
+
+  @doc false
+  # Drops the cache ETS table so the next lookup reloads from disk.
+  # Safe to call when the table is already gone.
+  @spec drop() :: :ok
+  def drop do
+    try do
+      :ets.delete(@ets)
+    rescue
+      ArgumentError -> :ok
     end
+
+    :ok
   end
 
   defp load_from_disk do

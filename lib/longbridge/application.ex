@@ -6,7 +6,8 @@ defmodule Longbridge.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Finch, name: Longbridge.Finch, pools: finch_pools()}
+      {Finch, name: Longbridge.Finch, pools: finch_pools()},
+      Longbridge.Symbol.Store
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Longbridge.Supervisor)

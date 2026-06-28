@@ -246,11 +246,7 @@ defmodule Longbridge.SymbolTest do
 
       try do
         # Drop the table so the next call to ensure_loaded/reset sees :undefined
-        try do
-          :ets.delete(Longbridge.Symbol.Cache)
-        rescue
-          ArgumentError -> :ok
-        end
+        Cache.drop()
 
         assert Cache.reset() == :ok
         # Touching lookup should trigger ensure_loaded + load_from_disk → :enoent
@@ -263,11 +259,7 @@ defmodule Longbridge.SymbolTest do
     end
 
     test "reset on uninitialised table returns :ok without raising" do
-      try do
-        :ets.delete(Longbridge.Symbol.Cache)
-      rescue
-        ArgumentError -> :ok
-      end
+      Cache.drop()
 
       assert Cache.reset() == :ok
     end
@@ -285,11 +277,7 @@ defmodule Longbridge.SymbolTest do
       try do
         System.put_env("LONGBRIDGE_CACHE_DIR", base)
 
-        try do
-          :ets.delete(Longbridge.Symbol.Cache)
-        rescue
-          ArgumentError -> :ok
-        end
+        Cache.drop()
 
         log =
           ExUnit.CaptureLog.capture_log(fn ->
@@ -346,6 +334,30 @@ defmodule Longbridge.SymbolTest do
       assert length(results) == 50
     end
 
+    test "table is owned by the Store and survives the loading process" do
+      # Pre-fix the table was owned by whichever process first called
+      # ensure_loaded. A short-lived loader (e.g. a Task) taking that role
+      # meant the table died when the loader exited, and concurrent
+      # readers crashed with ArgumentError. The long-lived Store now owns
+      # it, so the table must persist after the loader is gone.
+      Directory.drop()
+      parent = self()
+
+      loader =
+        spawn(fn ->
+          Directory.lookup("SPY.US", "US", "SPY")
+          send(parent, :loaded)
+        end)
+
+      # Monitor before the loader can exit so we observe :normal, not :noproc.
+      ref = Process.monitor(loader)
+      assert_receive :loaded, 1_000
+      assert_receive {:DOWN, ^ref, :process, ^loader, :normal}, 2_000
+
+      assert :ets.info(Directory.table()) != :undefined
+      assert Directory.lookup("SPY.US", "US", "SPY") == "ETF/US/SPY"
+    end
+
     test "load_file raises when the embedded CSV is unreadable" do
       # Simulate a missing/misplaced file by deleting the ETS table and
       # having `Application.app_dir/2` resolve to a path that does not
@@ -364,11 +376,7 @@ defmodule Longbridge.SymbolTest do
         Enum.each(moved, fn {src, dst} -> File.rename!(src, dst) end)
 
         # Drop the table so ensure_loaded runs the load_file branch.
-        try do
-          :ets.delete(Longbridge.Symbol.Directory)
-        rescue
-          ArgumentError -> :ok
-        end
+        Directory.drop()
 
         assert_raise RuntimeError, ~r/US-ETF\.csv could not be loaded/, fn ->
           Directory.lookup("ANY", "US", "ANY")
@@ -378,11 +386,7 @@ defmodule Longbridge.SymbolTest do
         File.rmdir(stash_dir)
 
         # Drop the table again so the next test re-loads from the real priv.
-        try do
-          :ets.delete(Longbridge.Symbol.Directory)
-        rescue
-          ArgumentError -> :ok
-        end
+        Directory.drop()
       end
     end
   end
