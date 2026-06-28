@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/*", "fix/*"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same branch / PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Opt into Node.js 24 (default after June 16, 2026).
+# erlef/setup-beam@v1 uses Node.js for the action runtime.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+  MIX_ENV: test
+  OTP_VERSION: "29.0"
+  ELIXIR_VERSION: "1.20.1"
+
+jobs:
+  # ── Linux: full CI quality gate ─────────────────────────────
+  linux:
+    name: "Linux · Elixir 1.20.1 · OTP 29.0"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      - name: Cache build artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            _build
+            deps
+            priv/plts
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+            ${{ runner.os }}-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile (warnings-as-errors)
+        # We intentionally don't pass --all-warnings: that flag treats
+        # third-party dep warnings (yamerl's deprecated catch, etc.)
+        # as errors. We only want to enforce warnings-as-errors on
+        # our own code, which `mix compile --warnings-as-errors` does.
+        run: mix compile --warnings-as-errors
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Credo (strict)
+        run: mix credo --strict
+
+      - name: Audit dependencies for CVEs
+        run: mix deps.audit
+
+      - name: Check for unused dependencies
+        run: mix deps.unlock --check-unused
+
+      - name: xref (no orphan modules)
+        run: mix xref graph --label compile-connected --fail-above 0
+
+      - name: ExDNA (duplication)
+        run: mix ex_dna
+
+      - name: Reach (dead code + smells)
+        run: mix reach.check --dead-code --smells
+
+      - name: Dialyzer
+        run: mix dialyzer
+        timeout-minutes: 15
+
+      - name: Run tests with coverage
+        # mix test --cover runs the tests once and produces the
+        # Erlang cover report (cover/*.html, cover/*.coverdata).
+        # Codecov's bash uploader autodetects coverdata files.
+        # The strict threshold check is in mix.exs
+        # (test_coverage: [summary: [threshold: 80]]).
+        run: mix test --cover
+
+      - name: Post coverage to Codecov
+        # Push the cover report to codecov.io using their bash
+        # uploader. The uploader reads CODECOV_TOKEN from env.
+        #
+        # Requires CODECOV_TOKEN in repo Settings -> Secrets ->
+        # Actions. Get the token at https://codecov.io/gh/gilbertwong96/
+        # longbridge -> Settings -> Upload Token.
+        #
+        # Skip the step if the secret is not set. We don't fail
+        # the build over missing coverage uploads — coverage is
+        # still available as an action artifact download.
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -z "$CODECOV_TOKEN" ]; then
+            echo "::notice::CODECOV_TOKEN not set - skipping Codecov upload."
+            echo "Add it at https://codecov.io/gh/gilbertwong96/longbridge"
+            echo "to enable the coverage badge."
+            exit 0
+          fi
+          curl -Os https://uploader.codecov.io/latest/linux/codecov
+          chmod +x codecov
+          # Mix test --cover produces cover/coverage.lcov.coverdata
+          # in lcov format. Codecov autodetects the format from the
+          # filename suffix.
+          ./codecov --token "$CODECOV_TOKEN" --file ./cover/coverage.lcov.coverdata
+        continue-on-error: true
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-linux
+          path: |
+            cover/coverage.lcov.coverdata
+            cover/*.html
+          retention-days: 30

@@ -1,5 +1,11 @@
 # Longbridge
 
+[![CI](https://github.com/gilbertwong96/longbridge/actions/workflows/ci.yml/badge.svg)](https://github.com/gilbertwong96/longbridge/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/gilbertwong96/longbridge/graph/badge.svg)](https://codecov.io/gh/gilbertwong96/longbridge)
+[![Elixir](https://img.shields.io/badge/elixir-1.20+-purple.svg)](https://elixir-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Hex](https://img.shields.io/badge/hex-not_yet_published-lightgrey.svg)](https://hex.pm)
+
 Elixir SDK for the [Longbridge OpenAPI](https://open.longbridge.com) trading platform — real-time market data, push subscriptions, trading, watchlists, screener, financial calendar, fundamental data, and portfolio analytics for US, HK, SG, and CN markets.
 
 The SDK speaks Longbridge's binary protocol over WebSocket for streaming quote and trade data, and uses signed HTTP requests for everything else (order placement, account queries, market data on demand, screener, watchlist, calendar, fundamentals). Quote and trade WebSockets authenticate with a one-time password (OTP) derived from the long-lived access token; HTTP requests sign with HMAC-SHA256.
@@ -13,7 +19,7 @@ The package is not yet published to Hex. Add it to your `mix.exs` via a git dep:
 ```elixir
 def deps do
   [
-    {:longbridge, github: "longbridge/longbridge", tag: "0.1.0"}
+    {:longbridge, github: "gilbertwong96/longbridge", tag: "0.1.0"}
   ]
 end
 ```

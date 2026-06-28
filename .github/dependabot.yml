@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Elixir / Hex dependencies — weekly batched PRs against the dev
+  # branch so renovate-style dep bumps don't spam main.
+  - package-ecosystem: "mix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "deps"
+      - "elixir"
+    # Don't bump transitive deps from deps they only appear in.
+    # Look only at direct deps in mix.lock.
+    allow:
+      - dependency-type: "direct"
+
+  # GitHub Actions — pin to a patch + minor range. Bumps when a
+  # vulnerable or broken action version is replaced upstream.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "deps"
+      - "ci"

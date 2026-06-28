@@ -33,6 +33,8 @@ defmodule Longbridge.MixProject do
   defp docs do
     [
       main: "readme",
+      source_url: "https://github.com/gilbertwong96/longbridge",
+      homepage_url: "https://github.com/gilbertwong96/longbridge",
       extras: ["README.md"],
       skip_undefined_reference_warnings_on: [
         "README.md",
@@ -119,7 +121,8 @@ defmodule Longbridge.MixProject do
           "and OAuth 2.0 authentication for US, HK, SG, and CN markets.",
       licenses: ["MIT"],
       links: %{
-        "GitHub" => "https://github.com/longbridge/longbridge",
+        "GitHub" => "https://github.com/gilbertwong96/longbridge",
+        "Upstream" => "https://github.com/longbridge/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
       files: ~w[lib protos .formatter.exs mix.exs README.md]

@@ -1,0 +1,42 @@
+codecov:
+  require_ci_to_pass: true
+  notify:
+    after_n_builds: 1
+    wait_for_ci: true
+
+# Coverage thresholds. We require 80% overall to keep the bar from
+# drifting down. Patch coverage (new/changed code) requires 70% — the
+# `mix.exs` threshold: 80 is enforced locally by `mix test --cover`
+# failing the build; this is the same bar reported on the badge.
+coverage:
+  precision: 2
+  round: down
+  range: 70...90
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+    changes: off
+
+# Auto-generated protobuf modules have 0% coverage by design — they
+# are exercised by encode/decode round-trip tests in the hand-written
+# context modules. Exclude them so they don't drag the total down.
+ignore:
+  - "lib/longbridge/_protos.ex"
+  - "**/V1/*.ex"
+
+flag_management:
+  default_rules:
+    carryforward: true
+    statuses:
+      - type: project
+        target: auto
+        threshold: 2%
+      - type: patch
+        target: 70%
