@@ -102,19 +102,35 @@ jobs:
         run: mix test --cover
 
       - name: Post coverage to Codecov
-        # Use the official Codecov v4 GitHub Action with the
-        # excoveralls JSON output. The codecov.yml in the repo root
-        # configures the threshold. Skip the step if the secret
-        # is not set.
+        # Push the excoveralls JSON to codecov.io using the bash
+        # uploader. The bash uploader has better format detection
+        # for the coveralls.io JSON format than the new codecov-cli
+        # (which doesn't ship an Elixir/coveralls plugin and returns
+        # 'Found 0 coverage files to report'). The excoveralls JSON
+        # at cover/excoveralls.json is the standard coveralls.io
+        # format that bash uploader understands.
+        #
+        # Requires CODECOV_TOKEN in repo Settings -> Secrets ->
+        # Actions. Get the token at
+        # https://codecov.io/gh/gilbertwong96/longbridge -> Settings
+        # -> Upload Token.
+        #
+        # Skip the step if the secret is not set. We don't fail
+        # the build over missing coverage uploads — coverage is
+        # still available as an action artifact download.
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        if: env.CODECOV_TOKEN != ''
-        uses: codecov/codecov-action@v5
-        with:
-          files: cover/excoveralls.json
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-          verbose: true
+        run: |
+          if [ -z "$CODECOV_TOKEN" ]; then
+            echo "::notice::CODECOV_TOKEN not set - skipping Codecov upload."
+            echo "Add it at https://codecov.io/gh/gilbertwong96/longbridge"
+            echo "to enable the coverage badge."
+            exit 0
+          fi
+          curl -Os https://uploader.codecov.io/latest/linux/codecov
+          chmod +x codecov
+          ./codecov --token "$CODECOV_TOKEN" --file ./cover/excoveralls.json
+        continue-on-error: true
 
       - name: Upload coverage artifact
         if: always()
