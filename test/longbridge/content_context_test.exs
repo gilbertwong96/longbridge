@@ -184,6 +184,54 @@ defmodule Longbridge.ContentContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "coerces a non-binary id to a string" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => 42}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "42"} =
+               ContentContext.create_topic(config_with(server.port),
+                 title: "t",
+                 body: "b"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "accepts a nested item.id in the response" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => "nested-id"}}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "nested-id"} =
+               ContentContext.create_topic(config_with(server.port),
+                 title: "t",
+                 body: "b"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "coerces a nested non-binary id to a string" do
+      server =
+        start_fake_http_server(fn _request, socket ->
+          payload = Jason.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => 7}}})
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      assert {:ok, "7"} =
+               ContentContext.create_topic(config_with(server.port),
+                 title: "t",
+                 body: "b"
+               )
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "topic_detail/2" do
