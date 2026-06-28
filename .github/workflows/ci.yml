@@ -94,39 +94,26 @@ jobs:
         timeout-minutes: 15
 
       - name: Run tests with coverage
-        # mix test --cover runs the tests once and produces both the
+        # mix test --cover runs the tests once and produces the
         # per-module HTML report (cover/*.html) and, via
         # --export-coverage, the Erlang cover binary at
-        # cover/lcov.info.coverdata that the Codecov uploader
-        # autodetects. The strict threshold check is in mix.exs
-        # (test_coverage: [summary: [threshold: 80]]).
+        # cover/lcov.info.coverdata. The strict threshold check is
+        # in mix.exs (test_coverage: [summary: [threshold: 80]]).
         run: mix test --cover --export-coverage lcov.info
 
       - name: Post coverage to Codecov
-        # Push the Erlang cover binary to codecov.io using their
-        # bash uploader. The uploader autodetects the format from
-        # the file's contents and reads CODECOV_TOKEN from env.
-        #
-        # Requires CODECOV_TOKEN in repo Settings -> Secrets ->
-        # Actions. Get the token at https://codecov.io/gh/gilbertwong96/
-        # longbridge -> Settings -> Upload Token.
-        #
-        # Skip the step if the secret is not set. We don't fail
-        # the build over missing coverage uploads — coverage is
-        # still available as an action artifact download.
+        # Use the official Codecov v4 GitHub Action which handles
+        # Erlang cover binary format. The codecov.yml in the repo
+        # root configures the threshold.
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        run: |
-          if [ -z "$CODECOV_TOKEN" ]; then
-            echo "::notice::CODECOV_TOKEN not set - skipping Codecov upload."
-            echo "Add it at https://codecov.io/gh/gilbertwong96/longbridge"
-            echo "to enable the coverage badge."
-            exit 0
-          fi
-          curl -Os https://uploader.codecov.io/latest/linux/codecov
-          chmod +x codecov
-          ./codecov --token "$CODECOV_TOKEN" --file cover/lcov.info.coverdata
-        continue-on-error: true
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          files: cover/lcov.info.coverdata
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: true
 
       - name: Upload coverage artifact
         if: always()
@@ -134,6 +121,6 @@ jobs:
         with:
           name: coverage-linux
           path: |
-            cover/lcov.info.coverdata
+            cover/lcov.info
             cover/*.html
           retention-days: 30
