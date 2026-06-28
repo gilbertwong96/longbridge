@@ -273,6 +273,10 @@ defmodule Longbridge.WSConnection do
 
   @impl true
   def handle_info(:heartbeat, state) do
+    # Driven by the owning context's heartbeat timer (QuoteContext /
+    # TradeContext schedule :heartbeat and forward it here). We only send
+    # the WS ping; we do NOT reschedule — the context owns the cadence so
+    # the connection isn't pinged at 2x the configured rate.
     state =
       if state.connection_state == :active do
         send_heartbeat(state)
@@ -280,28 +284,34 @@ defmodule Longbridge.WSConnection do
         state
       end
 
-    Process.send_after(self(), :heartbeat, state.config.heartbeat_interval)
     {:noreply, state}
   end
 
   @impl true
   def handle_info(message, state) do
-    case WebSocket.stream(state.mint_conn, message) do
-      {:ok, mint_conn, responses} ->
-        state =
-          state
-          |> Map.put(:mint_conn, mint_conn)
-          |> activate_socket()
-          |> handle_responses(responses)
+    # A stale :tcp/:ssl message can arrive after cleanup_socket has
+    # nilled mint_conn (e.g. in-flight socket data delivered during a
+    # reconnect). Streaming into a nil connection crashes, so drop it.
+    if state.mint_conn == nil do
+      {:noreply, state}
+    else
+      case WebSocket.stream(state.mint_conn, message) do
+        {:ok, mint_conn, responses} ->
+          state =
+            state
+            |> Map.put(:mint_conn, mint_conn)
+            |> activate_socket()
+            |> handle_responses(responses)
 
-        {:noreply, state}
+          {:noreply, state}
 
-      {:error, mint_conn, reason, _responses} ->
-        state = Map.put(state, :mint_conn, mint_conn)
-        handle_disconnect(state, {:mint_error, reason})
+        {:error, mint_conn, reason, _responses} ->
+          state = Map.put(state, :mint_conn, mint_conn)
+          handle_disconnect(state, {:mint_error, reason})
 
-      :unknown ->
-        {:noreply, state}
+        :unknown ->
+          {:noreply, state}
+      end
     end
   end
 
@@ -729,6 +739,12 @@ defmodule Longbridge.WSConnection do
         process_data(state, rest)
 
       {:error, :incomplete_header} ->
+        %{state | buffer: state.buffer <> data}
+
+      {:error, :incomplete_body} ->
+        # Header parsed but the body straddles a WS frame boundary.
+        # Re-buffer the remainder so the next frame completes it;
+        # re-parsing the header on resume is idempotent.
         %{state | buffer: state.buffer <> data}
 
       {:error, _reason} ->
