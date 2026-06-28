@@ -136,4 +136,28 @@ defmodule Longbridge.QuoteContext.RealtimeStoreTest do
       assert {:ok, [nil]} = RealtimeStore.get_quote(store, ["AAPL.US"])
     end
   end
+
+  describe "multiple instances" do
+    test "two stores can coexist in the same VM without ETS name clashes" do
+      # Previously the store used a :named_table, so a second QuoteContext
+      # crashed on init. Per-instance tables (no :named_table) fix this.
+      store_a = start_store()
+      store_b = start_store()
+
+      push_a = %Q.PushQuote{symbol: "AAPL.US", sequence: 1}
+      push_b = %Q.PushQuote{symbol: "TSLA.US", sequence: 2}
+
+      RealtimeStore.put_quote(store_a, push_a)
+      RealtimeStore.put_quote(store_b, push_b)
+
+      assert {:ok, [^push_a]} = RealtimeStore.get_quote(store_a, ["AAPL.US"])
+      assert {:ok, [nil]} = RealtimeStore.get_quote(store_a, ["TSLA.US"])
+
+      assert {:ok, [^push_b]} = RealtimeStore.get_quote(store_b, ["TSLA.US"])
+      assert {:ok, [nil]} = RealtimeStore.get_quote(store_b, ["AAPL.US"])
+
+      :ok = RealtimeStore.stop(store_a)
+      :ok = RealtimeStore.stop(store_b)
+    end
+  end
 end

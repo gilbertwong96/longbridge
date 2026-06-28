@@ -93,8 +93,11 @@ defmodule Longbridge.QuoteContext.RealtimeStore do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
-    _ = :ets.new(@table, [:set, :protected, :named_table, read_concurrency: true])
-    {:ok, %{owner: Keyword.fetch!(opts, :owner), table: @table}}
+    # Per-instance table (no :named_table) so multiple QuoteContexts can
+    # coexist in one VM. The ref lives in state; the table is owned by this
+    # GenServer and dies with it.
+    table = :ets.new(@table, [:set, :protected, read_concurrency: true])
+    {:ok, %{owner: Keyword.fetch!(opts, :owner), table: table}}
   end
 
   @impl true
@@ -184,11 +187,8 @@ defmodule Longbridge.QuoteContext.RealtimeStore do
   end
 
   @impl true
-  def terminate(_reason, _state) do
-    if :ets.whereis(@table) != :undefined do
-      :ets.delete(@table)
-    end
-
+  def terminate(_reason, state) do
+    if state.table, do: :ets.delete(state.table)
     :ok
   end
 end

@@ -423,6 +423,15 @@ defmodule Longbridge.QuoteContextTest do
       assert {:ok, ^sid, _} = QuoteContext.session(ctx)
       cleanup(server, ctx)
     end
+
+    test "request_timeout is driven by config and scales the call timeout" do
+      # Guards against the previous mismatch where the outer GenServer.call
+      # timeout was a fixed 15s while the inner request used config.request_timeout.
+      sid = "sess-rt-#{System.unique_integer([:positive])}"
+      {server, ctx} = connected_ctx(sid, empty_resp_handler())
+      assert GenServer.call(ctx, :request_timeout) == 10_000
+      cleanup(server, ctx)
+    end
   end
 
   describe "quote/2" do
@@ -468,6 +477,23 @@ defmodule Longbridge.QuoteContextTest do
         connected_ctx("sess-sub#{System.unique_integer([:positive])}", empty_resp_handler())
 
       assert :ok = QuoteContext.subscribe(ctx, ["AAPL.US"], [:QUOTE, :DEPTH])
+      assert_receive {:cmd_code, 6}
+      cleanup(server, ctx)
+    end
+
+    test "re-applies subscriptions after a reconnect" do
+      {server, ctx} =
+        connected_ctx("sess-rs#{System.unique_integer([:positive])}", empty_resp_handler())
+
+      assert :ok = QuoteContext.subscribe(ctx, ["AAPL.US"], [:QUOTE])
+      assert_receive {:cmd_code, 6}
+
+      # Simulate the WSConnection's {:connected, _} broadcast, which fires
+      # on initial connect and on every reconnect. The context must re-send
+      # the recorded subscribe so push delivery resumes after a drop.
+      conn = :sys.get_state(ctx).conn
+      send(ctx, {:longbridge, conn, {:connected, "sess-rs-2"}})
+
       assert_receive {:cmd_code, 6}
       cleanup(server, ctx)
     end

@@ -619,35 +619,13 @@ defmodule Longbridge.QuoteContext do
   """
   @spec subscribe(pid(), [String.t()], [sub_type()], boolean()) :: :ok | {:error, term()}
   def subscribe(pid, symbols, sub_types, is_first_push \\ true) do
-    type_vals = Enum.map(sub_types, &Map.fetch!(@sub_type_map, &1))
-
-    req = %Q.SubscribeRequest{
-      symbol: symbols,
-      sub_type: type_vals,
-      is_first_push: is_first_push
-    }
-
-    case request_raw(pid, @cmd_subscribe, req) do
-      {:ok, _body, _req_id} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    GenServer.call(pid, {:subscribe, symbols, sub_types, is_first_push})
   end
 
   @doc "Unsubscribes from push data."
   @spec unsubscribe(pid(), [String.t()], [sub_type()], boolean()) :: :ok | {:error, term()}
   def unsubscribe(pid, symbols, sub_types, unsub_all \\ false) do
-    type_vals = Enum.map(sub_types, &Map.fetch!(@sub_type_map, &1))
-
-    req = %Q.UnsubscribeRequest{
-      symbol: symbols,
-      sub_type: type_vals,
-      unsub_all: unsub_all
-    }
-
-    case request_raw(pid, @cmd_unsubscribe, req) do
-      {:ok, _body, _req_id} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    GenServer.call(pid, {:unsubscribe, symbols, sub_types, unsub_all})
   end
 
   @doc """
@@ -752,6 +730,10 @@ defmodule Longbridge.QuoteContext do
          conn: conn,
          config: config,
          store: store,
+         # Recorded subscriptions, keyed by {sorted symbols, sorted sub_types},
+         # so we can re-apply them after a WS reconnect instead of silently
+         # losing push delivery.
+         subscriptions: %{},
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -796,9 +778,36 @@ defmodule Longbridge.QuoteContext do
   end
 
   @impl true
+  def handle_call(:request_timeout, _from, state) do
+    {:reply, state.config.request_timeout, state}
+  end
+
+  @impl true
   def handle_call({:request, cmd_code, body, _timeout}, _from, state) do
     result = WSConnection.request(state.conn, cmd_code, body, state.config.request_timeout)
     {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call({:subscribe, symbols, sub_types, is_first_push}, _from, state) do
+    case send_subscribe(state, symbols, sub_types, is_first_push) do
+      :ok ->
+        {:reply, :ok, put_subscription(state, symbols, sub_types, is_first_push)}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:unsubscribe, symbols, sub_types, unsub_all}, _from, state) do
+    case send_unsubscribe(state, symbols, sub_types, unsub_all) do
+      :ok ->
+        {:reply, :ok, drop_subscription(state, symbols, sub_types)}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
   end
 
   @impl true
@@ -831,6 +840,14 @@ defmodule Longbridge.QuoteContext do
   def handle_info(:heartbeat, state) do
     send(state.conn, :heartbeat)
     schedule_heartbeat(state.config.heartbeat_interval)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:longbridge, conn, {:connected, _session_id}}, %{conn: conn} = state) do
+    # The WS connection (re)connected. Re-apply recorded subscriptions so
+    # push delivery resumes after a reconnect instead of going silent.
+    state = resubscribe(state)
     {:noreply, state}
   end
 
@@ -941,8 +958,9 @@ defmodule Longbridge.QuoteContext do
   defp request(pid, cmd_code, req_msg, resp_module) do
     {:ok, iodata, _size} = Protox.encode(req_msg)
     body = IO.iodata_to_binary(iodata)
+    req_timeout = GenServer.call(pid, :request_timeout)
 
-    case GenServer.call(pid, {:request, cmd_code, body, 10_000}, 15_000) do
+    case GenServer.call(pid, {:request, cmd_code, body, req_timeout}, req_timeout + 5_000) do
       {:ok, resp_body, _req_id} ->
         decode_response(resp_body, resp_module)
 
@@ -951,14 +969,10 @@ defmodule Longbridge.QuoteContext do
     end
   end
 
-  defp request_raw(pid, cmd_code, req_msg) do
-    {:ok, iodata, _size} = Protox.encode(req_msg)
-    body = IO.iodata_to_binary(iodata)
-    GenServer.call(pid, {:request, cmd_code, body, 10_000}, 15_000)
-  end
-
   defp request_empty(pid, cmd_code, resp_module) do
-    case GenServer.call(pid, {:request, cmd_code, <<>>, 10_000}, 15_000) do
+    req_timeout = GenServer.call(pid, :request_timeout)
+
+    case GenServer.call(pid, {:request, cmd_code, <<>>, req_timeout}, req_timeout + 5_000) do
       {:ok, resp_body, _req_id} ->
         decode_response(resp_body, resp_module)
 
@@ -980,6 +994,72 @@ defmodule Longbridge.QuoteContext do
 
   defp schedule_heartbeat(interval) do
     Process.send_after(self(), :heartbeat, interval)
+  end
+
+  # ── Subscription tracking / reconnect re-apply ───────────
+
+  defp send_subscribe(state, symbols, sub_types, is_first_push) do
+    type_vals = Enum.map(sub_types, &Map.fetch!(@sub_type_map, &1))
+
+    req = %Q.SubscribeRequest{
+      symbol: symbols,
+      sub_type: type_vals,
+      is_first_push: is_first_push
+    }
+
+    case ws_request(state, @cmd_subscribe, req) do
+      {:ok, _body, _req_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp send_unsubscribe(state, symbols, sub_types, unsub_all) do
+    type_vals = Enum.map(sub_types, &Map.fetch!(@sub_type_map, &1))
+
+    req = %Q.UnsubscribeRequest{
+      symbol: symbols,
+      sub_type: type_vals,
+      unsub_all: unsub_all
+    }
+
+    case ws_request(state, @cmd_unsubscribe, req) do
+      {:ok, _body, _req_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Encodes a request and sends it straight to the WS connection (not via
+  # a self GenServer.call, which would deadlock from handle_info/handle_call).
+  defp ws_request(state, cmd_code, req_msg) do
+    {:ok, iodata, _size} = Protox.encode(req_msg)
+    body = IO.iodata_to_binary(iodata)
+    WSConnection.request(state.conn, cmd_code, body, state.config.request_timeout)
+  end
+
+  defp subscription_key(symbols, sub_types) do
+    {Enum.sort(symbols), Enum.sort(sub_types)}
+  end
+
+  defp put_subscription(state, symbols, sub_types, is_first_push) do
+    key = subscription_key(symbols, sub_types)
+
+    %{
+      state
+      | subscriptions: Map.put(state.subscriptions, key, {symbols, sub_types, is_first_push})
+    }
+  end
+
+  defp drop_subscription(state, symbols, sub_types) do
+    key = subscription_key(symbols, sub_types)
+    %{state | subscriptions: Map.delete(state.subscriptions, key)}
+  end
+
+  defp resubscribe(state) do
+    Enum.each(state.subscriptions, fn {_key, {symbols, sub_types, is_first_push}} ->
+      _ = send_subscribe(state, symbols, sub_types, is_first_push)
+    end)
+
+    state
   end
 
   defp period_code(:ONE_MINUTE), do: 1
