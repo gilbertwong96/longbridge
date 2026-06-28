@@ -46,16 +46,20 @@ defmodule Longbridge.DCAContext do
   - `:day_of_week` — for weekly frequency, e.g. `"Monday"`
   - `:day_of_month` — for monthly frequency, `"1"` through `"31"`
   - `:allow_margin` — boolean, defaults to `false`
+
+  Trailing `http_opts` is forwarded to `HTTPClient.request_json/5`,
+  so callers may override `:http_url`, `:finch`, etc. on a per-call basis.
   """
-  @spec create_plan(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def create_plan(%Config{} = config, opts) do
+  @spec create_plan(Config.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def create_plan(%Config{} = config, opts, http_opts \\ []) do
     body =
       opts
       |> Map.new()
       |> Map.put_new(:allow_margin, false)
       |> Jason.encode!()
 
-    HTTPClient.request_json(:post, @create_path, body, config)
+    HTTPClient.request_json(:post, @create_path, body, config, http_opts)
   end
 
   @doc """
@@ -67,6 +71,11 @@ defmodule Longbridge.DCAContext do
   - `:limit` — page size (default `100`)
   - `:status` — `:active`, `:suspended`, or `:finished`
   - `:symbol` — filter by symbol
+
+  HTTP-level keys such as `:http_url` and `:finch` may be passed in
+  the same keyword list; they are forwarded to `HTTPClient.request_json/5`
+  alongside the built query string. Function-built `:params` take
+  precedence over any caller-supplied `:params`.
   """
   @spec list_plans(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def list_plans(%Config{} = config, opts \\ []) do
@@ -80,28 +89,34 @@ defmodule Longbridge.DCAContext do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> URI.encode_query()
 
-    HTTPClient.request_json(:get, @list_path, "", config, params: params)
+    HTTPClient.request_json(:get, @list_path, "", config, Keyword.put(opts, :params, params))
   end
 
   @doc """
   Updates an existing plan. Same options as `create_plan/2` plus `:plan_id`.
+
+  Trailing `http_opts` is forwarded to `HTTPClient.request_json/5`,
+  so callers may override `:http_url`, `:finch`, etc. on a per-call basis.
   """
-  @spec update_plan(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def update_plan(%Config{} = config, opts) do
+  @spec update_plan(Config.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def update_plan(%Config{} = config, opts, http_opts \\ []) do
     body = Jason.encode!(Map.new(opts))
-    HTTPClient.request_json(:post, @update_path, body, config)
+    HTTPClient.request_json(:post, @update_path, body, config, http_opts)
   end
 
   @doc "Pauses an active plan by `plan_id`."
-  @spec pause_plan(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def pause_plan(%Config{} = config, plan_id) do
-    toggle(config, plan_id, @status_suspended)
+  @spec pause_plan(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def pause_plan(%Config{} = config, plan_id, http_opts \\ []) do
+    toggle(config, plan_id, @status_suspended, http_opts)
   end
 
   @doc "Resumes a paused plan by `plan_id`."
-  @spec resume_plan(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def resume_plan(%Config{} = config, plan_id) do
-    toggle(config, plan_id, @status_active)
+  @spec resume_plan(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resume_plan(%Config{} = config, plan_id, http_opts \\ []) do
+    toggle(config, plan_id, @status_active, http_opts)
   end
 
   @doc """
@@ -110,9 +125,10 @@ defmodule Longbridge.DCAContext do
   The upstream API does not expose a true DELETE; finishing is the
   irreversible terminal state.
   """
-  @spec delete_plan(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def delete_plan(%Config{} = config, plan_id) do
-    toggle(config, plan_id, @status_finished)
+  @spec delete_plan(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def delete_plan(%Config{} = config, plan_id, http_opts \\ []) do
+    toggle(config, plan_id, @status_finished, http_opts)
   end
 
   @doc """
@@ -122,9 +138,10 @@ defmodule Longbridge.DCAContext do
   filters the list response so callers that only want one plan don't have
   to walk the pagination.
   """
-  @spec plan_detail(Config.t(), String.t()) :: {:ok, map() | nil} | {:error, term()}
-  def plan_detail(%Config{} = config, plan_id) do
-    case list_plans(config, limit: 100) do
+  @spec plan_detail(Config.t(), String.t(), keyword()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def plan_detail(%Config{} = config, plan_id, http_opts \\ []) do
+    case list_plans(config, Keyword.put(http_opts, :limit, 100)) do
       {:ok, %{"plans" => plans}} when is_list(plans) ->
         {:ok, Enum.find(plans, &(&1["plan_id"] == plan_id))}
 
@@ -138,9 +155,9 @@ defmodule Longbridge.DCAContext do
 
   # ── Helpers ──────────────────────────────────────────────
 
-  defp toggle(config, plan_id, status) do
+  defp toggle(config, plan_id, status, http_opts) do
     body = Jason.encode!(%{plan_id: plan_id, status: status})
-    HTTPClient.request_json(:post, @toggle_path, body, config)
+    HTTPClient.request_json(:post, @toggle_path, body, config, http_opts)
   end
 
   defp encode_status(:active), do: @status_active

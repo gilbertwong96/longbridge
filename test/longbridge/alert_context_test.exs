@@ -282,12 +282,13 @@ defmodule Longbridge.AlertContextTest do
           :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => []})))
         end)
 
-      config = Longbridge.Config.new(
-        token: "tok",
-        app_key: "k",
-        app_secret: "s",
-        http_url: "http://127.0.0.1:1"
-      )
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
 
       assert {:ok, _} =
                AlertContext.list_alerts(config, http_url: "http://127.0.0.1:#{server.port}")

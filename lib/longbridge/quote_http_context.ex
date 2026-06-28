@@ -46,13 +46,19 @@ defmodule Longbridge.QuoteHTTPContext do
 
     * `:count` — integer 1-100, default 20.
   """
-  @spec short_positions(Config.t(), String.t(), keyword()) ::
+  @spec short_positions(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, list() | map()} | {:error, term()}
-  def short_positions(%Config{} = config, symbol, opts \\ []) do
+  def short_positions(%Config{} = config, symbol, opts \\ [], http_opts \\ []) do
     count = Keyword.get(opts, :count, 20)
     params = "symbol=#{symbol}&count=#{count}"
 
-    case HTTPClient.request_json(:get, @short_positions_path, "", config, params: params) do
+    case HTTPClient.request_json(
+           :get,
+           @short_positions_path,
+           "",
+           config,
+           Keyword.put(http_opts, :params, params)
+         ) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, _other} -> {:ok, []}
       error -> error
@@ -69,9 +75,15 @@ defmodule Longbridge.QuoteHTTPContext do
   `"p"` (put volume, decimal string) keys. Mirrors
   `OptionVolumeStats` from `longbridge/openapi-go`.
   """
-  @spec option_volume(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def option_volume(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, @option_volume_path, "", config, params: "symbol=#{symbol}")
+  @spec option_volume(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def option_volume(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      @option_volume_path,
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
+    )
   end
 
   @doc """
@@ -85,12 +97,18 @@ defmodule Longbridge.QuoteHTTPContext do
   interest fields. Mirrors `DailyOptionVolume` from
   `longbridge/openapi-go`.
   """
-  @spec option_volume_daily(Config.t(), String.t(), String.t(), String.t()) ::
+  @spec option_volume_daily(Config.t(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, list(map())} | {:error, term()}
-  def option_volume_daily(%Config{} = config, symbol, start_date, end_date) do
+  def option_volume_daily(%Config{} = config, symbol, start_date, end_date, opts \\ []) do
     params = "symbol=#{symbol}&start=#{start_date}&end=#{end_date}"
 
-    case HTTPClient.request_json(:get, @option_volume_daily_path, "", config, params: params) do
+    case HTTPClient.request_json(
+           :get,
+           @option_volume_daily_path,
+           "",
+           config,
+           Keyword.put(opts, :params, params)
+         ) do
       {:ok, %{"stats" => items}} when is_list(items) -> {:ok, items}
       {:ok, _other} -> {:ok, []}
       error -> error
@@ -112,11 +130,18 @@ defmodule Longbridge.QuoteHTTPContext do
 
   Each entry has `symbol`, `name_cn`, `name_hk`, `name_en`.
   """
-  @spec security_list(Config.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
-  def security_list(%Config{} = config, opts) do
+  @spec security_list(Config.t(), keyword(), keyword()) ::
+          {:ok, list(map())} | {:error, term()}
+  def security_list(%Config{} = config, opts \\ [], http_opts \\ []) do
     params = HTTPClient.build_query(opts)
 
-    case HTTPClient.request_json(:get, @security_list_path, "", config, params: params) do
+    case HTTPClient.request_json(
+           :get,
+           @security_list_path,
+           "",
+           config,
+           Keyword.put(http_opts, :params, params)
+         ) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}
@@ -129,9 +154,9 @@ defmodule Longbridge.QuoteHTTPContext do
 
   Endpoint: `GET /v1/watchlist/groups`
   """
-  @spec watchlist_groups(Config.t()) :: {:ok, list(map())} | {:error, term()}
-  def watchlist_groups(%Config{} = config) do
-    case HTTPClient.request_json(:get, @watchlist_groups_path, "", config) do
+  @spec watchlist_groups(Config.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  def watchlist_groups(%Config{} = config, opts \\ []) do
+    case HTTPClient.request_json(:get, @watchlist_groups_path, "", config, opts) do
       {:ok, %{"groups" => groups}} when is_list(groups) -> {:ok, groups}
       {:ok, groups} when is_list(groups) -> {:ok, groups}
       {:ok, _} -> {:ok, []}
@@ -146,12 +171,12 @@ defmodule Longbridge.QuoteHTTPContext do
 
   Returns `{:ok, group_id}` where `group_id` is the new group id.
   """
-  @spec create_watchlist_group(Config.t(), String.t(), [String.t()]) ::
+  @spec create_watchlist_group(Config.t(), String.t(), [String.t()], keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  def create_watchlist_group(%Config{} = config, name, securities) do
+  def create_watchlist_group(%Config{} = config, name, securities, opts \\ []) do
     body = Jason.encode!(%{name: name, securities: securities})
 
-    case HTTPClient.request_json(:post, @watchlist_groups_path, body, config) do
+    case HTTPClient.request_json(:post, @watchlist_groups_path, body, config, opts) do
       {:ok, %{"id" => id}} when is_binary(id) -> {:ok, id}
       {:ok, %{"id" => id}} when is_integer(id) -> {:ok, Integer.to_string(id)}
       {:ok, %{"id" => id}} -> {:ok, to_string(id)}
@@ -170,13 +195,13 @@ defmodule Longbridge.QuoteHTTPContext do
   groups; `purge: false` only deletes the group, leaving symbols
   in other groups intact.
   """
-  @spec delete_watchlist_group(Config.t(), String.t(), boolean()) ::
+  @spec delete_watchlist_group(Config.t(), String.t(), boolean(), keyword()) ::
           :ok | {:error, term()}
-  def delete_watchlist_group(%Config{} = config, group_id, purge \\ false)
+  def delete_watchlist_group(%Config{} = config, group_id, purge \\ false, opts \\ [])
       when is_boolean(purge) do
     body = Jason.encode!(%{id: group_id, purge: purge})
 
-    case HTTPClient.request_json(:delete, @watchlist_groups_path, body, config) do
+    case HTTPClient.request_json(:delete, @watchlist_groups_path, body, config, opts) do
       {:ok, _} -> :ok
       error -> error
     end
@@ -192,9 +217,16 @@ defmodule Longbridge.QuoteHTTPContext do
     * `:remove` — remove `securities` from the group.
     * `:replace` — replace the group's full symbol list.
   """
-  @spec update_watchlist_group(Config.t(), String.t(), String.t(), [String.t()], atom()) ::
+  @spec update_watchlist_group(
+          Config.t(),
+          String.t(),
+          String.t(),
+          [String.t()],
+          atom(),
+          keyword()
+        ) ::
           :ok | {:error, term()}
-  def update_watchlist_group(%Config{} = config, group_id, name, securities, mode) do
+  def update_watchlist_group(%Config{} = config, group_id, name, securities, mode, opts \\ []) do
     body =
       Jason.encode!(%{
         id: group_id,
@@ -203,7 +235,7 @@ defmodule Longbridge.QuoteHTTPContext do
         mode: encode_watchlist_mode(mode)
       })
 
-    case HTTPClient.request_json(:put, @watchlist_groups_path, body, config) do
+    case HTTPClient.request_json(:put, @watchlist_groups_path, body, config, opts) do
       {:ok, _} -> :ok
       error -> error
     end
@@ -224,10 +256,14 @@ defmodule Longbridge.QuoteHTTPContext do
   The response includes a numeric `temperature` (0-100, where
   higher = greedier market) and a sentiment label.
   """
-  @spec market_temperature(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def market_temperature(%Config{} = config, market) do
-    HTTPClient.request_json(:get, @market_temperature_path, "", config,
-      params: "market=#{market}"
+  @spec market_temperature(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def market_temperature(%Config{} = config, market, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      @market_temperature_path,
+      "",
+      config,
+      Keyword.put(opts, :params, "market=#{market}")
     )
   end
 
@@ -239,11 +275,18 @@ defmodule Longbridge.QuoteHTTPContext do
 
   `start_date` and `end_date` are `"YYYY-MM-DD"` strings.
   """
-  @spec history_market_temperature(Config.t(), String.t(), String.t(), String.t()) ::
+  @spec history_market_temperature(Config.t(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def history_market_temperature(%Config{} = config, market, start_date, end_date) do
+  def history_market_temperature(%Config{} = config, market, start_date, end_date, opts \\ []) do
     params = "market=#{market}&start_date=#{start_date}&end_date=#{end_date}"
-    HTTPClient.request_json(:get, @history_market_temperature_path, "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      @history_market_temperature_path,
+      "",
+      config,
+      Keyword.put(opts, :params, params)
+    )
   end
 
   @doc """
@@ -258,8 +301,9 @@ defmodule Longbridge.QuoteHTTPContext do
     * `:last_timestamp` — Unix timestamp seconds to paginate
       backwards from (omit for latest).
   """
-  @spec short_trades(Config.t(), String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
-  def short_trades(%Config{} = config, symbol, opts \\ []) do
+  @spec short_trades(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, list(map())} | {:error, term()}
+  def short_trades(%Config{} = config, symbol, opts \\ [], http_opts \\ []) do
     count = Keyword.get(opts, :count, 50)
     last_ts = Keyword.get(opts, :last_timestamp, 0)
 
@@ -277,7 +321,7 @@ defmodule Longbridge.QuoteHTTPContext do
         page_size: count
       )
 
-    case HTTPClient.request_json(:get, path, "", config, params: params) do
+    case HTTPClient.request_json(:get, path, "", config, Keyword.put(http_opts, :params, params)) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}
@@ -292,13 +336,13 @@ defmodule Longbridge.QuoteHTTPContext do
 
   Pass `is_pinned: true` to pin, `false` to unpin.
   """
-  @spec update_pinned(Config.t(), String.t(), String.t(), boolean()) ::
+  @spec update_pinned(Config.t(), String.t(), String.t(), boolean(), keyword()) ::
           :ok | {:error, term()}
-  def update_pinned(%Config{} = config, group_id, symbol, is_pinned)
+  def update_pinned(%Config{} = config, group_id, symbol, is_pinned, opts \\ [])
       when is_boolean(is_pinned) do
     body = Jason.encode!(%{group_id: group_id, symbol: symbol, is_pinned: is_pinned})
 
-    case HTTPClient.request_json(:post, @watchlist_pinned_path, body, config) do
+    case HTTPClient.request_json(:post, @watchlist_pinned_path, body, config, opts) do
       {:ok, _response} -> :ok
       error -> error
     end
@@ -326,11 +370,17 @@ defmodule Longbridge.QuoteHTTPContext do
   `publish_at` is a Unix timestamp in seconds; convert with
   `DateTime.from_unix!/2` or `Longbridge.Decimal` as appropriate.
   """
-  @spec filings(Config.t(), String.t()) :: {:ok, [map()]} | {:error, term()}
-  def filings(%Config{} = config, symbol) when is_binary(symbol) do
+  @spec filings(Config.t(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def filings(%Config{} = config, symbol, opts \\ []) when is_binary(symbol) do
     params = "symbol=#{URI.encode_www_form(symbol)}"
 
-    case HTTPClient.request_json(:get, @filings_path, "", config, params: params) do
+    case HTTPClient.request_json(
+           :get,
+           @filings_path,
+           "",
+           config,
+           Keyword.put(opts, :params, params)
+         ) do
       {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
       {:ok, _other} -> {:ok, []}
       error -> error
@@ -352,12 +402,12 @@ defmodule Longbridge.QuoteHTTPContext do
   embedded directory + cache, use
   `Longbridge.Symbol.resolve_counter_ids/2` instead.
   """
-  @spec symbol_to_counter_ids(Config.t(), [String.t()]) ::
+  @spec symbol_to_counter_ids(Config.t(), [String.t()], keyword()) ::
           {:ok, %{String.t() => String.t()}} | {:error, term()}
-  def symbol_to_counter_ids(%Config{} = config, symbols) when is_list(symbols) do
+  def symbol_to_counter_ids(%Config{} = config, symbols, opts \\ []) when is_list(symbols) do
     body = Jason.encode!(%{ticker_regions: symbols})
 
-    case HTTPClient.request_json(:post, @symbol_to_counter_ids_path, body, config) do
+    case HTTPClient.request_json(:post, @symbol_to_counter_ids_path, body, config, opts) do
       {:ok, %{"list" => list}} when is_map(list) -> {:ok, list}
       {:ok, _other} -> {:ok, %{}}
       error -> error

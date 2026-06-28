@@ -30,9 +30,9 @@ defmodule Longbridge.MarketContext do
   `market` filter; the response includes US/HK/CN/SG entries that callers
   filter client-side.
   """
-  @spec market_session(Config.t()) :: {:ok, map()} | {:error, term()}
-  def market_session(%Config{} = config) do
-    HTTPClient.request_json(:get, "/v1/quote/market-status", "", config)
+  @spec market_session(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def market_session(%Config{} = config, opts \\ []) do
+    HTTPClient.request_json(:get, "/v1/quote/market-status", "", config, opts)
   end
 
   @doc """
@@ -42,12 +42,19 @@ defmodule Longbridge.MarketContext do
 
   - `:period` — `:rct_1` (1d, default), `:rct_5`, `:rct_20`, `:rct_60`
   """
-  @spec broker_holdings(Config.t(), String.t(), keyword()) ::
+  @spec broker_holdings(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def broker_holdings(%Config{} = config, symbol, opts \\ []) do
+  def broker_holdings(%Config{} = config, symbol, opts \\ [], http_opts \\ []) do
     period = Keyword.get(opts, :period, :rct_1)
     params = "counter_id=#{Symbol.to_counter_id(symbol)}&type=#{encode_period(period)}"
-    HTTPClient.request_json(:get, "/v1/quote/broker-holding", "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/broker-holding",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -55,10 +62,15 @@ defmodule Longbridge.MarketContext do
 
   `market` is a region code: `"US"`, `"HK"`, `"CN"`, `"SG"`.
   """
-  @spec anomaly_alerts(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def anomaly_alerts(%Config{} = config, market \\ "US") do
-    HTTPClient.request_json(:get, "/v1/quote/changes", "", config,
-      params: "market=#{market}&category=0"
+  @spec anomaly_alerts(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def anomaly_alerts(%Config{} = config, market \\ "US", opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/changes",
+      "",
+      config,
+      Keyword.put(opts, :params, "market=#{market}&category=0")
     )
   end
 
@@ -67,20 +79,29 @@ defmodule Longbridge.MarketContext do
 
   `index_symbol` examples: `"HSI.HK"`, `"HSCEI.HK"`, `"HSTECH.HK"`.
   """
-  @spec index_constituents(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def index_constituents(%Config{} = config, index_symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/index-constituents", "", config,
-      params: "counter_id=#{Symbol.index_to_counter_id(index_symbol)}"
+  @spec index_constituents(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def index_constituents(%Config{} = config, index_symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/index-constituents",
+      "",
+      config,
+      Keyword.put(opts, :params, "counter_id=#{Symbol.index_to_counter_id(index_symbol)}")
     )
   end
 
   @doc """
   Returns buy/sell/neutral trade statistics for a symbol.
   """
-  @spec trade_status(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def trade_status(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/trades-statistics", "", config,
-      params: "counter_id=#{Symbol.to_counter_id(symbol)}"
+  @spec trade_status(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def trade_status(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/trades-statistics",
+      "",
+      config,
+      Keyword.put(opts, :params, "counter_id=#{Symbol.to_counter_id(symbol)}")
     )
   end
 
@@ -95,15 +116,22 @@ defmodule Longbridge.MarketContext do
   - `:period` — `:day` (default), `:week`, `:month`, `:quarter`, `:year`
   - `:count` — number of klines (default `100`)
   """
-  @spec ah_premium(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def ah_premium(%Config{} = config, symbol, opts \\ []) do
+  @spec ah_premium(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def ah_premium(%Config{} = config, symbol, opts \\ [], http_opts \\ []) do
     period = Keyword.get(opts, :period, :day)
     count = Keyword.get(opts, :count, 100)
 
     params =
       "counter_id=#{Symbol.to_counter_id(symbol)}&line_type=#{encode_line_type(period)}&line_num=#{count}"
 
-    HTTPClient.request_json(:get, "/v1/quote/ahpremium/klines", "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/ahpremium/klines",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   # `trading_days` was removed upstream; the calendar endpoint
@@ -132,8 +160,8 @@ defmodule Longbridge.MarketContext do
 
   Renamed from `stock_events` in longbridge/openapi 4.2.0.
   """
-  @spec top_movers(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def top_movers(%Config{} = config, opts \\ []) do
+  @spec top_movers(Config.t(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
+  def top_movers(%Config{} = config, opts \\ [], http_opts \\ []) do
     body =
       opts
       |> Map.new()
@@ -148,7 +176,7 @@ defmodule Longbridge.MarketContext do
       |> Map.new()
       |> Jason.encode!()
 
-    HTTPClient.request_json(:post, @top_movers_path, body, config)
+    HTTPClient.request_json(:post, @top_movers_path, body, config, http_opts)
   end
 
   @doc """
@@ -159,9 +187,9 @@ defmodule Longbridge.MarketContext do
   Returns a list of categories keyed by their `ib_<key>` IDs.
   Pass the value of a category entry's `key` field to `rank_list/2`.
   """
-  @spec rank_categories(Config.t()) :: {:ok, list()} | {:error, term()}
-  def rank_categories(%Config{} = config) do
-    case HTTPClient.request_json(:get, @rank_categories_path, "", config) do
+  @spec rank_categories(Config.t(), keyword()) :: {:ok, list()} | {:error, term()}
+  def rank_categories(%Config{} = config, opts \\ []) do
+    case HTTPClient.request_json(:get, @rank_categories_path, "", config, opts) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"list" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}
@@ -183,15 +211,22 @@ defmodule Longbridge.MarketContext do
     * `:need_article` — boolean (default `false`). When `true`, the
       response includes article content.
   """
-  @spec rank_list(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def rank_list(%Config{} = config, key, opts \\ []) when is_binary(key) do
+  @spec rank_list(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def rank_list(%Config{} = config, key, opts \\ [], http_opts \\ []) when is_binary(key) do
     need_article = Keyword.get(opts, :need_article, false)
     api_key = if String.starts_with?(key, "ib_"), do: key, else: "ib_" <> key
 
     params =
       "key=#{api_key}&delay_bmp=false&need_article=#{if need_article, do: "true", else: "false"}"
 
-    HTTPClient.request_json(:get, @rank_list_path, "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      @rank_list_path,
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   # ── Helpers ──────────────────────────────────────────────

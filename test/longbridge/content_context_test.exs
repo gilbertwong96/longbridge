@@ -415,4 +415,53 @@ defmodule Longbridge.ContentContextTest do
       assert {:error, :not_implemented} = ContentContext.announcements(%Config{}, "AAPL.US")
     end
   end
+
+  describe "http_url per-call override" do
+    test "topic_detail/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/content/topics/topic-123"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               ContentContext.topic_detail(config, "topic-123",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "my_topics/3 preserves :params while forwarding :http_url override" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/content/topics/mine"
+          assert request =~ "page=2"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => []})))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               ContentContext.my_topics(config, [page: 2],
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

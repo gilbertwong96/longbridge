@@ -122,4 +122,31 @@ defmodule Longbridge.AssetContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "download_url/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query =~ "/v1/statement/download"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               AssetContext.download_url(config, "file-key",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

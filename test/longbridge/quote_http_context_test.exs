@@ -936,4 +936,36 @@ defmodule Longbridge.QuoteHTTPContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "option_volume/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/option-volume-stats"
+
+          payload =
+            Jason.encode!(%{
+              code: 0,
+              data: %{"c" => "12345", "p" => "6789"}
+            })
+
+          :gen_tcp.send(socket, http_ok(payload))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, %{"c" => "12345", "p" => "6789"}} =
+               QuoteHTTPContext.option_volume(config, "AAPL230317P160000.US",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

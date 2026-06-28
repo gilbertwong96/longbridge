@@ -488,4 +488,29 @@ defmodule Longbridge.ScreenerContextTest do
       assert ScreenerContext.ensure_filter_prefix(nil) == ""
     end
   end
+
+  describe "http_url per-call override" do
+    test "strategy/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == @path_strategy_detail <> "42"
+          ok(conn, ~s({"code":0,"data":{"id":42,"name":"Low P/E"}}))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, %{"id" => 42, "name" => "Low P/E"}} =
+               ScreenerContext.strategy(config, 42, http_url: "http://127.0.0.1:#{server.port}")
+
+      stop_fake_http_server(server)
+    end
+  end
 end

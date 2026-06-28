@@ -40,41 +40,44 @@ defmodule Longbridge.CalendarContext do
   ## Options
 
   - `:market` — `"US"`, `"HK"`, `"CN"`, `"SG"`
+
+  Trailing `http_opts` is forwarded to `HTTPClient.request_json/5`,
+  so callers may override `:http_url`, `:finch`, etc. on a per-call basis.
   """
-  @spec earnings(Config.t(), String.t(), String.t(), keyword()) ::
+  @spec earnings(Config.t(), String.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def earnings(%Config{} = config, start_date, end_date, opts \\ []) do
-    fetch(config, @category_earnings, start_date, end_date, opts)
+  def earnings(%Config{} = config, start_date, end_date, opts \\ [], http_opts \\ []) do
+    fetch(config, @category_earnings, start_date, end_date, opts, http_opts)
   end
 
   @doc "Lists upcoming dividend dates."
-  @spec dividend_dates(Config.t(), String.t(), String.t(), keyword()) ::
+  @spec dividend_dates(Config.t(), String.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def dividend_dates(%Config{} = config, start_date, end_date, opts \\ []) do
-    fetch(config, @category_dividend, start_date, end_date, opts)
+  def dividend_dates(%Config{} = config, start_date, end_date, opts \\ [], http_opts \\ []) do
+    fetch(config, @category_dividend, start_date, end_date, opts, http_opts)
   end
 
   @doc "Lists upcoming stock splits."
-  @spec stock_splits(Config.t(), String.t(), String.t(), keyword()) ::
+  @spec stock_splits(Config.t(), String.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def stock_splits(%Config{} = config, start_date, end_date, opts \\ []) do
-    fetch(config, @category_split, start_date, end_date, opts)
+  def stock_splits(%Config{} = config, start_date, end_date, opts \\ [], http_opts \\ []) do
+    fetch(config, @category_split, start_date, end_date, opts, http_opts)
   end
 
   @doc "Lists IPO calendar entries."
-  @spec ipo_calendar(Config.t(), String.t(), String.t(), keyword()) ::
+  @spec ipo_calendar(Config.t(), String.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def ipo_calendar(%Config{} = config, start_date, end_date, opts \\ []) do
-    fetch(config, @category_ipo, start_date, end_date, opts)
+  def ipo_calendar(%Config{} = config, start_date, end_date, opts \\ [], http_opts \\ []) do
+    fetch(config, @category_ipo, start_date, end_date, opts, http_opts)
   end
 
   @doc """
   Lists macroeconomic event dates (CPI, GDP, Fed meetings, etc.).
   """
-  @spec macro_events(Config.t(), String.t(), String.t(), keyword()) ::
+  @spec macro_events(Config.t(), String.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def macro_events(%Config{} = config, start_date, end_date, opts \\ []) do
-    fetch(config, @category_macro, start_date, end_date, opts)
+  def macro_events(%Config{} = config, start_date, end_date, opts \\ [], http_opts \\ []) do
+    fetch(config, @category_macro, start_date, end_date, opts, http_opts)
   end
 
   @doc """
@@ -83,15 +86,16 @@ defmodule Longbridge.CalendarContext do
   The upstream calendar endpoint does not accept a date range for closures;
   pass `market` to scope by region.
   """
-  @spec market_closures(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def market_closures(%Config{} = config, opts \\ []) do
+  @spec market_closures(Config.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def market_closures(%Config{} = config, opts \\ [], http_opts \\ []) do
     today = Date.to_iso8601(Date.utc_today())
-    fetch(config, @category_closed, today, today, opts)
+    fetch(config, @category_closed, today, today, opts, http_opts)
   end
 
   # ── Helpers ──────────────────────────────────────────────
 
-  defp fetch(config, category, start_date, end_date, opts) do
+  defp fetch(config, category, start_date, end_date, opts, http_opts) do
     market = Keyword.get(opts, :market)
 
     params =
@@ -103,7 +107,13 @@ defmodule Longbridge.CalendarContext do
       |> maybe_put(:markets, market)
       |> URI.encode_query()
 
-    HTTPClient.request_json(:get, @finance_calendar_path, "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      @finance_calendar_path,
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   defp maybe_put(kw, _key, nil), do: kw

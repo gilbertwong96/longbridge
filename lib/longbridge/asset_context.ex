@@ -32,8 +32,9 @@ defmodule Longbridge.AssetContext do
   Returns `{:ok, %{"list" => [%{"dt" => date_int, "file_key" => key}]}}`
   or `{:error, reason}`.
   """
-  @spec statements(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def statements(%Config{} = config, opts \\ []) do
+  @spec statements(Config.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def statements(%Config{} = config, opts \\ [], http_opts \\ []) do
     st = if Keyword.get(opts, :type) == :monthly, do: 2, else: 1
 
     params =
@@ -43,7 +44,13 @@ defmodule Longbridge.AssetContext do
         page_size: Keyword.get(opts, :page_size)
       )
 
-    HTTPClient.request_json(:get, "/v1/statement/list", "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      "/v1/statement/list",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -51,9 +58,17 @@ defmodule Longbridge.AssetContext do
 
   `file_key` comes from the `statements/2` response.
   """
-  @spec download_url(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def download_url(%Config{} = config, file_key) when is_binary(file_key) do
+  @spec download_url(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def download_url(%Config{} = config, file_key, opts \\ []) when is_binary(file_key) do
     params = "file_key=#{URI.encode_www_form(file_key)}"
-    HTTPClient.request_json(:get, "/v1/statement/download", "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      "/v1/statement/download",
+      "",
+      config,
+      Keyword.put(opts, :params, params)
+    )
   end
 end

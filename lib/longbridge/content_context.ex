@@ -37,10 +37,18 @@ defmodule Longbridge.ContentContext do
 
   - `:lang` — language (`"zh-CN"`, `"zh-HK"`, `"en"`)
   """
-  @spec news(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def news(%Config{} = config, symbol, opts \\ []) when is_binary(symbol) do
+  @spec news(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def news(%Config{} = config, symbol, opts \\ [], http_opts \\ []) when is_binary(symbol) do
     params = HTTPClient.build_query(opts)
-    HTTPClient.request_json(:get, "/v1/content/#{symbol}/news", "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      "/v1/content/#{symbol}/news",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -53,10 +61,18 @@ defmodule Longbridge.ContentContext do
   - `:page` — page cursor
   - `:page_size` — results per page
   """
-  @spec topics(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def topics(%Config{} = config, symbol, opts \\ []) when is_binary(symbol) do
+  @spec topics(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def topics(%Config{} = config, symbol, opts \\ [], http_opts \\ []) when is_binary(symbol) do
     params = HTTPClient.build_query(opts)
-    HTTPClient.request_json(:get, "/v1/content/#{symbol}/topics", "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      "/v1/content/#{symbol}/topics",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -70,11 +86,17 @@ defmodule Longbridge.ContentContext do
     * `:size` — integer records per page, range 1..500, default 50.
     * `:topic_type` — `"article" | "post"`, optional filter.
   """
-  @spec my_topics(Config.t(), keyword()) :: {:ok, list()} | {:error, term()}
-  def my_topics(%Config{} = config, opts \\ []) do
+  @spec my_topics(Config.t(), keyword(), keyword()) :: {:ok, list()} | {:error, term()}
+  def my_topics(%Config{} = config, opts \\ [], http_opts \\ []) do
     params = HTTPClient.build_query(opts)
 
-    case HTTPClient.request_json(:get, @my_topics_path, "", config, params: params) do
+    case HTTPClient.request_json(
+           :get,
+           @my_topics_path,
+           "",
+           config,
+           Keyword.put(http_opts, :params, params)
+         ) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}
@@ -100,11 +122,12 @@ defmodule Longbridge.ContentContext do
     * `:tickers` — list of related symbols, max 10.
     * `:hashtags` — list of hashtag names, max 5.
   """
-  @spec create_topic(Config.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def create_topic(%Config{} = config, opts) do
+  @spec create_topic(Config.t(), keyword(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def create_topic(%Config{} = config, opts, http_opts \\ []) do
     body = Jason.encode!(Map.new(opts))
 
-    case HTTPClient.request_json(:post, @topics_path, body, config) do
+    case HTTPClient.request_json(:post, @topics_path, body, config, http_opts) do
       {:ok, %{"id" => id}} when is_binary(id) -> {:ok, id}
       {:ok, %{"item" => %{"id" => id}}} when is_binary(id) -> {:ok, id}
       {:ok, %{"id" => id}} -> {:ok, to_string(id)}
@@ -118,9 +141,10 @@ defmodule Longbridge.ContentContext do
 
   Endpoint: `GET /v1/content/topics/{id}`
   """
-  @spec topic_detail(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def topic_detail(%Config{} = config, id) when is_binary(id) do
-    HTTPClient.request_json(:get, @topic_path_prefix <> id, "", config)
+  @spec topic_detail(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def topic_detail(%Config{} = config, id, opts \\ []) when is_binary(id) do
+    HTTPClient.request_json(:get, @topic_path_prefix <> id, "", config, opts)
   end
 
   @doc """
@@ -133,13 +157,14 @@ defmodule Longbridge.ContentContext do
     * `:page` — integer page number, default 1.
     * `:size` — integer records per page, range 1..50, default 20.
   """
-  @spec list_topic_replies(Config.t(), String.t(), keyword()) ::
+  @spec list_topic_replies(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, list()} | {:error, term()}
-  def list_topic_replies(%Config{} = config, topic_id, opts \\ []) when is_binary(topic_id) do
+  def list_topic_replies(%Config{} = config, topic_id, opts \\ [], http_opts \\ [])
+      when is_binary(topic_id) do
     params = HTTPClient.build_query(opts)
     path = @topic_path_prefix <> topic_id <> @topic_comments_suffix
 
-    case HTTPClient.request_json(:get, path, "", config, params: params) do
+    case HTTPClient.request_json(:get, path, "", config, Keyword.put(http_opts, :params, params)) do
       {:ok, items} when is_list(items) -> {:ok, items}
       {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
       {:ok, _} -> {:ok, []}
@@ -160,12 +185,13 @@ defmodule Longbridge.ContentContext do
 
     * `:reply_to_id` — ID of a reply to respond to (omit for top-level reply).
   """
-  @spec create_topic_reply(Config.t(), String.t(), keyword()) ::
+  @spec create_topic_reply(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def create_topic_reply(%Config{} = config, topic_id, opts) when is_binary(topic_id) do
+  def create_topic_reply(%Config{} = config, topic_id, opts, http_opts \\ [])
+      when is_binary(topic_id) do
     body = Jason.encode!(Map.new(opts))
     path = @topic_path_prefix <> topic_id <> @topic_comments_suffix
-    HTTPClient.request_json(:post, path, body, config)
+    HTTPClient.request_json(:post, path, body, config, http_opts)
   end
 
   @doc """

@@ -186,4 +186,56 @@ defmodule Longbridge.SharelistContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "detail/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "GET"
+          assert parsed.path_with_query == "/v1/sharelists/abc-123"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               SharelistContext.detail(config, "abc-123",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "list/3 preserves :params while forwarding :http_url override" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.path_with_query =~ "/v1/sharelists"
+          assert parsed.path_with_query =~ "count=20"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               SharelistContext.list(config, [count: 20],
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

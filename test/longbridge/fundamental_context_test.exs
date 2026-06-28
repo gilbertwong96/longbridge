@@ -652,4 +652,58 @@ defmodule Longbridge.FundamentalContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "company_profile/3 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/comp-overview"
+          assert request =~ "symbol=AAPL.US"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               FundamentalContext.company_profile(config, "AAPL.US",
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "financial_reports/4 preserves :params while forwarding :http_url override" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/financial-reports"
+          assert request =~ "symbol=AAPL.US"
+          assert request =~ "rpt_type=income_statement"
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      config =
+        Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               FundamentalContext.financial_reports(
+                 config,
+                 "AAPL.US",
+                 [rpt_type: "income_statement"],
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

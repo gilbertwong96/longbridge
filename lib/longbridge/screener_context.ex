@@ -72,10 +72,15 @@ defmodule Longbridge.ScreenerContext do
 
   Endpoint: `GET /v1/quote/ai/screener/strategies/recommend?market=...`
   """
-  @spec recommend_strategies(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def recommend_strategies(%Config{} = config, market) do
-    HTTPClient.request_json(:get, @strategy_recommend_path, "", config,
-      params: "market=#{URI.encode_www_form(market)}"
+  @spec recommend_strategies(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def recommend_strategies(%Config{} = config, market, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      @strategy_recommend_path,
+      "",
+      config,
+      Keyword.put(opts, :params, "market=#{URI.encode_www_form(market)}")
     )
   end
 
@@ -84,10 +89,15 @@ defmodule Longbridge.ScreenerContext do
 
   Endpoint: `GET /v1/quote/ai/screener/strategies/mine?market=...`
   """
-  @spec user_strategies(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def user_strategies(%Config{} = config, market) do
-    HTTPClient.request_json(:get, @strategy_mine_path, "", config,
-      params: "market=#{URI.encode_www_form(market)}"
+  @spec user_strategies(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def user_strategies(%Config{} = config, market, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      @strategy_mine_path,
+      "",
+      config,
+      Keyword.put(opts, :params, "market=#{URI.encode_www_form(market)}")
     )
   end
 
@@ -99,9 +109,16 @@ defmodule Longbridge.ScreenerContext do
   The `"filter_"` prefix is stripped from every
   `filter.filters[].key` in the response before it is returned.
   """
-  @spec strategy(Config.t(), non_neg_integer()) :: {:ok, map()} | {:error, term()}
-  def strategy(%Config{} = config, id) when is_integer(id) do
-    case HTTPClient.request_json(:get, @strategy_path_prefix <> Integer.to_string(id), "", config) do
+  @spec strategy(Config.t(), non_neg_integer(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def strategy(%Config{} = config, id, opts \\ []) when is_integer(id) do
+    case HTTPClient.request_json(
+           :get,
+           @strategy_path_prefix <> Integer.to_string(id),
+           "",
+           config,
+           opts
+         ) do
       {:ok, data} when is_map(data) ->
         {:ok, strip_strategy_filter_prefixes(data)}
 
@@ -153,8 +170,9 @@ defmodule Longbridge.ScreenerContext do
     * `:page` — 0-indexed page number. Required.
     * `:size` — page size. Required.
   """
-  @spec search(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def search(%Config{} = config, market, opts) do
+  @spec search(Config.t(), String.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def search(%Config{} = config, market, opts \\ [], http_opts \\ []) do
     strategy_id = Keyword.get(opts, :strategy_id)
     conditions = Keyword.get(opts, :conditions, [])
     show = Keyword.get(opts, :show, [])
@@ -170,7 +188,7 @@ defmodule Longbridge.ScreenerContext do
 
     body = Jason.encode!(body_map)
 
-    case HTTPClient.request_json(:post, @strategy_search_path, body, config) do
+    case HTTPClient.request_json(:post, @strategy_search_path, body, config, http_opts) do
       {:ok, data} when is_map(data) ->
         {:ok, strip_search_filter_prefixes(data)}
 
@@ -204,9 +222,9 @@ defmodule Longbridge.ScreenerContext do
     * `tech_values` is built from `tech_indicators` as
       `{tech_key: [%{value: String.t(), label: String.t()}]}`.
   """
-  @spec indicators(Config.t()) :: {:ok, map()} | {:error, term()}
-  def indicators(%Config{} = config) do
-    case HTTPClient.request_json(:get, @indicators_path, "", config) do
+  @spec indicators(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def indicators(%Config{} = config, opts \\ []) do
+    case HTTPClient.request_json(:get, @indicators_path, "", config, opts) do
       {:ok, response} -> {:ok, normalize_indicators(response)}
       error -> error
     end

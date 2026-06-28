@@ -23,9 +23,13 @@ defmodule Longbridge.PortfolioContext do
 
   `base_currency` is optional. The upstream returns rates for every
   supported counter-currency when omitted.
+
+  Trailing `http_opts` is forwarded to `HTTPClient.request_json/5`,
+  so callers may override `:http_url`, `:finch`, etc. on a per-call basis.
   """
-  @spec exchange_rates(Config.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
-  def exchange_rates(%Config{} = config, base_currency \\ nil) do
+  @spec exchange_rates(Config.t(), String.t() | nil, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def exchange_rates(%Config{} = config, base_currency \\ nil, http_opts \\ []) do
     params =
       if base_currency do
         "base_currency=#{base_currency}"
@@ -33,7 +37,13 @@ defmodule Longbridge.PortfolioContext do
         ""
       end
 
-    HTTPClient.request_json(:get, "/v1/asset/exchange_rates", "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      "/v1/asset/exchange_rates",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -42,11 +52,20 @@ defmodule Longbridge.PortfolioContext do
   ## Options
 
   - `:market` — `:HK`, `:US`, `:CN`, `:SG`
+
+  HTTP-level keys such as `:http_url` and `:finch` may be passed in
+  the same keyword list; they are forwarded to `HTTPClient.request_json/5`
+  alongside the built query string. Function-built `:params` take
+  precedence over any caller-supplied `:params`.
   """
   @spec portfolio_pl(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def portfolio_pl(%Config{} = config, opts \\ []) do
-    HTTPClient.request_json(:get, "/v1/portfolio/profit-analysis/by-market", "", config,
-      params: HTTPClient.build_query(opts)
+    HTTPClient.request_json(
+      :get,
+      "/v1/portfolio/profit-analysis/by-market",
+      "",
+      config,
+      Keyword.put(opts, :params, HTTPClient.build_query(opts))
     )
   end
 
@@ -58,11 +77,20 @@ defmodule Longbridge.PortfolioContext do
   - `:start_date` — `"YYYY-MM-DD"` (required)
   - `:end_date` — `"YYYY-MM-DD"` (required)
   - `:symbol` — filter by symbol
+
+  HTTP-level keys such as `:http_url` and `:finch` may be passed in
+  the same keyword list; they are forwarded to `HTTPClient.request_json/5`
+  alongside the built query string. Function-built `:params` take
+  precedence over any caller-supplied `:params`.
   """
   @spec portfolio_positions(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def portfolio_positions(%Config{} = config, opts \\ []) do
-    HTTPClient.request_json(:get, "/v1/portfolio/profit-analysis/detail", "", config,
-      params: HTTPClient.build_query(opts)
+    HTTPClient.request_json(
+      :get,
+      "/v1/portfolio/profit-analysis/detail",
+      "",
+      config,
+      Keyword.put(opts, :params, HTTPClient.build_query(opts))
     )
   end
 end

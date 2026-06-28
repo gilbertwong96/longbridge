@@ -408,4 +408,57 @@ defmodule Longbridge.MarketContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "http_url per-call override" do
+    test "market_session/2 hits the URL passed in opts" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "/v1/quote/market-status"
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               MarketContext.market_session(config,
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+
+    test "top_movers/3 preserves body opts while forwarding :http_url override" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.method == "POST"
+          assert parsed.path_with_query == "/v1/quote/market/stock-events"
+          decoded = Jason.decode!(parsed.body)
+          assert decoded["sort"] == 1
+
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      config =
+        Longbridge.Config.new(
+          token: "tok",
+          app_key: "k",
+          app_secret: "s",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      assert {:ok, _} =
+               MarketContext.top_movers(config, [sort: :time],
+                 http_url: "http://127.0.0.1:#{server.port}"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

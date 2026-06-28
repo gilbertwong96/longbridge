@@ -53,9 +53,15 @@ defmodule Longbridge.FundamentalContext do
   `description`, `file_name`, `file_urls`, and `publish_at`
   (Unix timestamp, seconds).
   """
-  @spec filings(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def filings(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, @filings_path, "", config, params: "symbol=#{symbol}")
+  @spec filings(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def filings(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      @filings_path,
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
+    )
   end
 
   @doc """
@@ -71,13 +77,14 @@ defmodule Longbridge.FundamentalContext do
 
   Added in `longbridge/openapi` 4.2.0.
   """
-  @spec valuation_comparison(Config.t(), String.t(), String.t(), [String.t()] | nil) ::
+  @spec valuation_comparison(Config.t(), String.t(), String.t(), [String.t()] | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def valuation_comparison(
         %Config{} = config,
         symbol,
         currency,
-        comparison_symbols \\ nil
+        comparison_symbols \\ nil,
+        http_opts \\ []
       ) do
     params =
       HTTPClient.build_query(
@@ -89,7 +96,13 @@ defmodule Longbridge.FundamentalContext do
           end
       )
 
-    HTTPClient.request_json(:get, @valuation_comparison_path, "", config, params: params)
+    HTTPClient.request_json(
+      :get,
+      @valuation_comparison_path,
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   @doc """
@@ -101,10 +114,18 @@ defmodule Longbridge.FundamentalContext do
   The user-supplied symbol is converted to a `counter_id` via
   `Longbridge.Symbol.to_counter_id/1`.
   """
-  @spec etf_asset_allocation(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def etf_asset_allocation(%Config{} = config, symbol) do
+  @spec etf_asset_allocation(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def etf_asset_allocation(%Config{} = config, symbol, opts \\ []) do
     params = "counter_id=#{Symbol.to_counter_id(symbol)}"
-    HTTPClient.request_json(:get, @etf_asset_allocation_path, "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      @etf_asset_allocation_path,
+      "",
+      config,
+      Keyword.put(opts, :params, params)
+    )
   end
 
   @doc """
@@ -123,8 +144,9 @@ defmodule Longbridge.FundamentalContext do
   Mirrors `MacroeconomicCountry` from
   `longbridge/openapi/rust/src/fundamental/types.rs`.
   """
-  @spec macroeconomic_indicators(Config.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def macroeconomic_indicators(%Config{} = config, opts) do
+  @spec macroeconomic_indicators(Config.t(), keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def macroeconomic_indicators(%Config{} = config, opts, http_opts \\ []) do
     country = Keyword.fetch!(opts, :country)
     market = Map.fetch!(@country_to_market, country)
 
@@ -136,7 +158,13 @@ defmodule Longbridge.FundamentalContext do
         limit: opts[:limit]
       )
 
-    HTTPClient.request_json(:get, @macroeconomic_indicators_path, "", config, params: query)
+    HTTPClient.request_json(
+      :get,
+      @macroeconomic_indicators_path,
+      "",
+      config,
+      Keyword.put(http_opts, :params, query)
+    )
   end
 
   @doc """
@@ -158,9 +186,9 @@ defmodule Longbridge.FundamentalContext do
   `previous_value`, `forecast_value`, `revised_value`, `unit`,
   `unit_prefix`, `periodicity`, `importance`, etc.).
   """
-  @spec macroeconomic(Config.t(), String.t(), keyword()) ::
+  @spec macroeconomic(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def macroeconomic(%Config{} = config, indicator_code, opts \\ []) do
+  def macroeconomic(%Config{} = config, indicator_code, opts \\ [], http_opts \\ []) do
     query =
       HTTPClient.build_query(
         start_date: opts[:start_date],
@@ -172,53 +200,86 @@ defmodule Longbridge.FundamentalContext do
     path = @macroeconomic_path_prefix <> indicator_code
 
     case query do
-      "" -> HTTPClient.request_json(:get, path, "", config)
-      qs -> HTTPClient.request_json(:get, path, "", config, params: qs)
+      "" -> HTTPClient.request_json(:get, path, "", config, http_opts)
+      qs -> HTTPClient.request_json(:get, path, "", config, Keyword.put(http_opts, :params, qs))
     end
   end
 
   @doc "Returns company profile / overview for a symbol."
-  @spec company_profile(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def company_profile(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/comp-overview", "", config,
-      params: "symbol=#{symbol}"
+  @spec company_profile(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def company_profile(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/comp-overview",
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
     )
   end
 
   @doc "Returns dividend history for a symbol."
-  @spec dividends(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def dividends(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/dividends", "", config, params: "symbol=#{symbol}")
+  @spec dividends(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def dividends(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/dividends",
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
+    )
   end
 
   @doc "Returns valuation metrics (PE, PB, PS, etc.) for a symbol."
-  @spec valuation(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def valuation(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/valuation", "", config, params: "symbol=#{symbol}")
+  @spec valuation(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def valuation(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/valuation",
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
+    )
   end
 
   @doc "Returns shareholder distribution data for a symbol."
-  @spec shareholders(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def shareholders(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/shareholders", "", config,
-      params: "symbol=#{symbol}"
+  @spec shareholders(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def shareholders(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/shareholders",
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
     )
   end
 
   @doc "Returns the latest institutional analyst rating for a symbol."
-  @spec analyst_ratings(Config.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def analyst_ratings(%Config{} = config, symbol) do
-    HTTPClient.request_json(:get, "/v1/quote/institution-rating-latest", "", config,
-      params: "symbol=#{symbol}"
+  @spec analyst_ratings(Config.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def analyst_ratings(%Config{} = config, symbol, opts \\ []) do
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/institution-rating-latest",
+      "",
+      config,
+      Keyword.put(opts, :params, "symbol=#{symbol}")
     )
   end
 
   @doc "Returns financial reports (income, balance, cash flow) for a symbol."
-  @spec financial_reports(Config.t(), String.t(), keyword()) ::
+  @spec financial_reports(Config.t(), String.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def financial_reports(%Config{} = config, symbol, opts \\ []) do
+  def financial_reports(%Config{} = config, symbol, opts \\ [], http_opts \\ []) do
     params = "symbol=#{symbol}" <> query_suffix(opts)
-    HTTPClient.request_json(:get, "/v1/quote/financial-reports", "", config, params: params)
+
+    HTTPClient.request_json(
+      :get,
+      "/v1/quote/financial-reports",
+      "",
+      config,
+      Keyword.put(http_opts, :params, params)
+    )
   end
 
   # ── Helpers ──────────────────────────────────────────────
