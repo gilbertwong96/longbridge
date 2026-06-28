@@ -94,16 +94,18 @@ jobs:
         timeout-minutes: 15
 
       - name: Run tests with coverage
-        # mix test --cover runs the tests once and produces the
-        # Erlang cover report (cover/*.html, cover/*.coverdata).
-        # Codecov's bash uploader autodetects coverdata files.
-        # The strict threshold check is in mix.exs
+        # mix test --cover runs the tests once and produces both the
+        # per-module HTML report (cover/*.html) and, via
+        # --export-coverage, the Erlang cover binary at
+        # cover/lcov.info.coverdata that the Codecov uploader
+        # autodetects. The strict threshold check is in mix.exs
         # (test_coverage: [summary: [threshold: 80]]).
-        run: mix test --cover
+        run: mix test --cover --export-coverage lcov.info
 
       - name: Post coverage to Codecov
-        # Push the cover report to codecov.io using their bash
-        # uploader. The uploader reads CODECOV_TOKEN from env.
+        # Push the Erlang cover binary to codecov.io using their
+        # bash uploader. The uploader autodetects the format from
+        # the file's contents and reads CODECOV_TOKEN from env.
         #
         # Requires CODECOV_TOKEN in repo Settings -> Secrets ->
         # Actions. Get the token at https://codecov.io/gh/gilbertwong96/
@@ -123,10 +125,7 @@ jobs:
           fi
           curl -Os https://uploader.codecov.io/latest/linux/codecov
           chmod +x codecov
-          # Mix test --cover produces cover/coverage.lcov.coverdata
-          # in lcov format. Codecov autodetects the format from the
-          # filename suffix.
-          ./codecov --token "$CODECOV_TOKEN" --file ./cover/coverage.lcov.coverdata
+          ./codecov --token "$CODECOV_TOKEN" --file cover/lcov.info.coverdata
         continue-on-error: true
 
       - name: Upload coverage artifact
@@ -135,6 +134,6 @@ jobs:
         with:
           name: coverage-linux
           path: |
-            cover/coverage.lcov.coverdata
+            cover/lcov.info.coverdata
             cover/*.html
           retention-days: 30
