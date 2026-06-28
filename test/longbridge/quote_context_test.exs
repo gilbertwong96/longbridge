@@ -1294,6 +1294,125 @@ defmodule Longbridge.QuoteContextTest do
     end
   end
 
+  describe "member_id/1" do
+    test "returns the member_id field from user_quote_profile" do
+      resp = %Q.UserQuoteProfileResponse{member_id: 15_766_270, quote_level: "Lv1"}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-mid#{System.unique_integer([:positive])}",
+          inspect_handler(resp, nil)
+        )
+
+      assert {:ok, 15_766_270} = QuoteContext.member_id(ctx)
+      cleanup(server, ctx)
+    end
+  end
+
+  describe "quote_level/1" do
+    test "returns the quote_level field from user_quote_profile" do
+      resp = %Q.UserQuoteProfileResponse{member_id: 1, quote_level: "Lv2"}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-ql#{System.unique_integer([:positive])}",
+          inspect_handler(resp, nil)
+        )
+
+      assert {:ok, "Lv2"} = QuoteContext.quote_level(ctx)
+      cleanup(server, ctx)
+    end
+  end
+
+  describe "quote_package_details/2" do
+    test "returns the quote_level_detail from user_quote_profile" do
+      package = %Q.UserQuoteLevelDetail.PackageDetail{
+        key: "hk_basic",
+        name: "HK Basic",
+        description: "Basic HK quotes",
+        start: 1_700_000_000,
+        end: 1_900_000_000
+      }
+
+      market_package = %Q.UserQuoteLevelDetail.MarketPackageDetail{
+        packages: [package],
+        warning_msg: ""
+      }
+
+      details = %Q.UserQuoteLevelDetail{
+        by_market_code: %{"HK" => market_package},
+        by_package_key: %{"hk_basic" => package}
+      }
+
+      resp = %Q.UserQuoteProfileResponse{
+        member_id: 1,
+        quote_level: "Lv1",
+        quote_level_detail: details
+      }
+
+      test_pid = self()
+      counter = :counters.new(1, [])
+
+      handler = fn client, _tp, cmd_code, req_id, body ->
+        _ = :counters.add(counter, 1, 1)
+        n = :counters.get(counter, 1)
+
+        decoded = if cmd_code == 4, do: Q.UserQuoteProfileRequest, else: nil
+        req = if decoded, do: Protox.decode!(body, decoded), else: nil
+        send(test_pid, {:qpd_call, n, cmd_code, req})
+
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp)))
+        )
+      end
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-qpd#{System.unique_integer([:positive])}",
+          handler
+        )
+
+      assert {:ok, ^details} = QuoteContext.quote_package_details(ctx)
+      # The second call (after init) must have carried the request.
+      assert_receive {:qpd_call, 2, 4, req}
+      assert req.language == "en"
+      cleanup(server, ctx)
+    end
+
+    test "forwards the :language option" do
+      resp = %Q.UserQuoteProfileResponse{quote_level_detail: nil}
+
+      test_pid = self()
+      counter = :counters.new(1, [])
+
+      handler = fn client, _tp, cmd_code, req_id, body ->
+        _ = :counters.add(counter, 1, 1)
+        n = :counters.get(counter, 1)
+
+        decoded = if cmd_code == 4, do: Q.UserQuoteProfileRequest, else: nil
+        req = if decoded, do: Protox.decode!(body, decoded), else: nil
+        send(test_pid, {:qpd_call, n, cmd_code, req})
+
+        :gen_tcp.send(
+          client,
+          ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp)))
+        )
+      end
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-qpdl#{System.unique_integer([:positive])}",
+          handler
+        )
+
+      assert {:ok, _} = QuoteContext.quote_package_details(ctx, language: "zh-CN")
+      assert_receive {:qpd_call, 2, 4, req}
+      assert req.language == "zh-CN"
+      cleanup(server, ctx)
+    end
+  end
+
   describe "push messages" do
     test "QuoteContext stays alive after receiving push data" do
       sid = "sess-push#{System.unique_integer([:positive])}"

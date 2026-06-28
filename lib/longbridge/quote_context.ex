@@ -138,6 +138,61 @@ defmodule Longbridge.QuoteContext do
     request(pid, @cmd_user_quote_profile, req, Q.UserQuoteProfileResponse)
   end
 
+  @doc """
+  Returns the authenticated member ID.
+
+  Convenience over `user_quote_profile/2` that extracts just the
+  `member_id` field — no need to decode the full profile response.
+
+  Mirrors `QuoteContext::member_id` from `longbridge/openapi/rust`.
+  """
+  @spec member_id(pid()) :: {:ok, integer()} | {:error, term()}
+  def member_id(pid) do
+    with {:ok, profile} <- user_quote_profile(pid), do: {:ok, profile.member_id}
+  end
+
+  @doc """
+  Returns the user's quote level (e.g. `"Lv1"`, `"Lv2"`).
+
+  Convenience over `user_quote_profile/2` that extracts just the
+  `quote_level` field. Mirrors `QuoteContext::quote_level` from
+  `longbridge/openapi/rust`.
+  """
+  @spec quote_level(pid()) :: {:ok, String.t()} | {:error, term()}
+  def quote_level(pid) do
+    with {:ok, profile} <- user_quote_profile(pid), do: {:ok, profile.quote_level}
+  end
+
+  @doc """
+  Returns the user's subscribed quote packages by market.
+
+  Each market entry contains the package details (key, name,
+  description, start/end timestamps) and a `warning_msg` shown when
+  no packages are active for that market.
+
+  The `language` parameter (`"en"` by default) controls the
+  localized package names. Accepted values: `"zh-CN"`, `"zh-HK"`,
+  `"en"`.
+
+  Mirrors `QuoteContext::quote_package_details` from
+  `longbridge/openapi/rust`.
+
+  ## Example
+
+      {:ok, %UserQuoteLevelDetail{} = details} =
+        Longbridge.QuoteContext.quote_package_details(ctx, language: "en")
+      Enum.each(details.market_package_details, fn entry ->
+        IO.inspect(entry.market)
+      end)
+  """
+  @spec quote_package_details(pid(), keyword()) ::
+          {:ok, Q.UserQuoteLevelDetail.t()} | {:error, term()}
+  def quote_package_details(pid, opts \\ []) do
+    with {:ok, profile} <- user_quote_profile(pid, opts) do
+      {:ok, profile.quote_level_detail}
+    end
+  end
+
   # ── Quote API Methods ────────────────────────────────────
 
   @doc "Queries security static info for given symbols."

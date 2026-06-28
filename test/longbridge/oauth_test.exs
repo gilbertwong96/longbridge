@@ -825,6 +825,112 @@ defmodule Longbridge.OAuthTest do
     end
   end
 
+  describe "authorize/2 callback server edge cases" do
+    test "returns {:error, :callback_request_failed} when the callback connection sends no data" do
+      callback_port = 18_200
+
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      server = start_oauth_fake_http_with_finch(fn _ -> oauth_json_response(200, %{}) end)
+
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          OAuth.authorize("client-callback-no-data",
+            http_url: "http://127.0.0.1:#{server.port}",
+            finch: server.finch,
+            callback_port: callback_port,
+            timeout: 1_000,
+            open_url_fn: fn url ->
+              send(parent, {:authorize_url, url})
+              :ok
+            end
+          )
+        end)
+
+      authorize_url =
+        receive do
+          {:authorize_url, url} -> url
+        after
+          2_000 -> flunk("authorize/2 never emitted the URL")
+        end
+
+      # Hold the connection open without sending data, then close it.
+      # The callback server should treat this as a recv failure and
+      # forward a :callback error to the caller.
+      {:ok, sock} = :gen_tcp.connect(~c"127.0.0.1", callback_port, [:binary, active: false])
+      :gen_tcp.close(sock)
+
+      assert {:error, {:callback_error, "request recv failed: " <> _}} =
+               Task.await(task, 5_000)
+
+      stop_oauth_fake_http(server)
+    end
+
+    test "returns 405 when the callback request is non-GET" do
+      callback_port = 18_201
+
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      server = start_oauth_fake_http_with_finch(fn _ -> oauth_json_response(200, %{}) end)
+
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          OAuth.authorize("client-callback-post",
+            http_url: "http://127.0.0.1:#{server.port}",
+            finch: server.finch,
+            callback_port: callback_port,
+            timeout: 1_000,
+            open_url_fn: fn url ->
+              send(parent, {:authorize_url, url})
+              :ok
+            end
+          )
+        end)
+
+      authorize_url =
+        receive do
+          {:authorize_url, url} -> url
+        after
+          2_000 -> flunk("authorize/2 never emitted the URL")
+        end
+
+      %URI{query: query} = URI.parse(authorize_url)
+      params = Enum.to_list(URI.query_decoder(query))
+      state = elem(Enum.find(params, &match?({"state", _}, &1)), 1)
+
+      {:ok, sock} = :gen_tcp.connect(~c"127.0.0.1", callback_port, [:binary, active: false])
+
+      # Send a POST instead of GET — the callback server responds with
+      # 405 method-not-allowed without notifying its parent, so the
+      # caller's receive blocks until the timeout fires.
+      :gen_tcp.send(
+        sock,
+        "POST /callback?code=c&state=#{state} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+      )
+
+      case :gen_tcp.recv(sock, 0, 1_000) do
+        {:ok, resp} -> assert resp =~ "405"
+        _ -> :ok
+      end
+
+      :gen_tcp.close(sock)
+
+      assert {:error, :timeout} = Task.await(task, 5_000)
+
+      stop_oauth_fake_http(server)
+    end
+  end
+
   # ── Fake HTTP server helpers for OAuth tests ──────────────
 
   defp start_oauth_fake_http_with_finch(handler) do
