@@ -300,6 +300,68 @@ defmodule Longbridge.ContentContextTest do
     end
   end
 
+  describe "news/3" do
+    test "GETs the news endpoint with the symbol in the path" do
+      response = %{
+        "list" => [
+          %{"id" => "n1", "title" => "Apple hits ATH", "summary" => "...", "source" => "Reuters"}
+        ]
+      }
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/content/AAPL.US/news"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} = ContentContext.news(config_with(server.port), "AAPL.US")
+      stop_fake_http_server(server)
+    end
+
+    test "forwards opts as query params" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "/v1/content/AAPL.US/news"
+          assert request =~ "page_size=20"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert {:ok, _} = ContentContext.news(config_with(server.port), "AAPL.US", page_size: 20)
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "topics/3" do
+    test "GETs the topics endpoint with the symbol in the path" do
+      response = %{"list" => [%{"topic_id" => "t1", "title" => "Bull case"}]}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/content/AAPL.US/topics"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} = ContentContext.topics(config_with(server.port), "AAPL.US")
+      stop_fake_http_server(server)
+    end
+
+    test "forwards opts as query params" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "/v1/content/AAPL.US/topics"
+          assert request =~ "page=2"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert {:ok, _} = ContentContext.topics(config_with(server.port), "AAPL.US", page: 2)
+      stop_fake_http_server(server)
+    end
+  end
+
   describe "announcements/2" do
     test "returns :not_implemented" do
       assert {:error, :not_implemented} = ContentContext.announcements(%Config{}, "AAPL.US")

@@ -620,14 +620,151 @@ defmodule Longbridge.OAuthTest do
 
       on_exit(fn -> stop_oauth_fake_http(server) end)
 
-      oauth_url = "http://127.0.0.1:#{server.port}"
+      _oauth_url = "http://127.0.0.1:#{server.port}"
 
       assert {:error, {:refresh_token_revoked, "invalid_grant", _}} =
                OAuth.load_token("client-revoked",
                  storage: InMemoryTokenStorage,
-                 http_url: oauth_url,
+                 http_url: "http://127.0.0.1:#{server.port}",
                  finch: server.finch
                )
+    end
+  end
+
+  describe "authorize/2 (headless flow)" do
+    test "completes the flow when the callback returns code+state" do
+      server =
+        start_oauth_fake_http_with_finch(fn _request_line ->
+          oauth_json_response(200, %{
+            "access_token" => "the-token",
+            "refresh_token" => "the-refresh",
+            "expires_in" => 3_600,
+            "token_type" => "Bearer"
+          })
+        end)
+
+      parent = self()
+
+      # Use a known callback port for the test, so we can simulate
+      # the browser callback ourselves.
+      callback_port = 18_173
+
+      # Free the port if anything from a prior test is lingering.
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      task =
+        Task.async(fn ->
+          OAuth.authorize("client-headless",
+            http_url: "http://127.0.0.1:#{server.port}",
+            finch: server.finch,
+            callback_port: callback_port,
+            timeout: 3_000,
+            open_url_fn: fn url ->
+              send(parent, {:authorize_url, url})
+              :ok
+            end
+          )
+        end)
+
+      authorize_url =
+        receive do
+          {:authorize_url, url} -> url
+        after
+          2_000 -> flunk("authorize/2 never emitted the URL")
+        end
+
+      %URI{query: query} = URI.parse(authorize_url)
+      params = Enum.to_list(URI.query_decoder(query))
+      state = elem(Enum.find(params, &match?({"state", _}, &1)), 1)
+
+      # Simulate the browser callback by hitting the local server.
+      {:ok, sock} = :gen_tcp.connect(~c"127.0.0.1", callback_port, [:binary, active: false])
+
+      :gen_tcp.send(
+        sock,
+        "GET /callback?code=the-code&state=#{state} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+      )
+
+      :gen_tcp.close(sock)
+
+      assert {:ok, %Config{token: "the-token"}} = Task.await(task, 5_000)
+
+      stop_oauth_fake_http(server)
+    end
+
+    test "returns {:error, {:callback_error, _}} on OAuth error callback" do
+      server = start_oauth_fake_http_with_finch(fn _ -> oauth_json_response(200, %{}) end)
+
+      callback_port = 18_174
+
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          OAuth.authorize("client-headless-err",
+            http_url: "http://127.0.0.1:#{server.port}",
+            finch: server.finch,
+            callback_port: callback_port,
+            timeout: 3_000,
+            open_url_fn: fn url ->
+              send(parent, {:authorize_url, url})
+              :ok
+            end
+          )
+        end)
+
+      authorize_url =
+        receive do
+          {:authorize_url, url} -> url
+        after
+          2_000 -> flunk("authorize/2 never emitted the URL")
+        end
+
+      %URI{query: query} = URI.parse(authorize_url)
+      params = Enum.to_list(URI.query_decoder(query))
+      state = elem(Enum.find(params, &match?({"state", _}, &1)), 1)
+
+      {:ok, sock} = :gen_tcp.connect(~c"127.0.0.1", callback_port, [:binary, active: false])
+
+      :gen_tcp.send(
+        sock,
+        "GET /callback?error=access_denied&error_description=user+denied&state=#{state} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+      )
+
+      :gen_tcp.close(sock)
+
+      assert {:error, {:callback_error, "access_denied: user denied"}} = Task.await(task, 5_000)
+
+      stop_oauth_fake_http(server)
+    end
+
+    test "returns {:error, :timeout} when no callback arrives in time" do
+      server = start_oauth_fake_http_with_finch(fn _ -> oauth_json_response(200, %{}) end)
+      callback_port = 18_175
+
+      case :gen_tcp.listen(callback_port, [:binary, active: false, reuseaddr: true]) do
+        {:ok, sock} -> :gen_tcp.close(sock)
+        _ -> :ok
+      end
+
+      assert {:error, :timeout} =
+               OAuth.authorize("client-headless-timeout",
+                 http_url: "http://127.0.0.1:#{server.port}",
+                 finch: server.finch,
+                 callback_port: callback_port,
+                 timeout: 200,
+                 open_url_fn: fn _url -> :ok end
+               )
+
+      stop_oauth_fake_http(server)
     end
   end
 

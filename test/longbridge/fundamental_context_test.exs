@@ -522,4 +522,134 @@ defmodule Longbridge.FundamentalContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "company_profile/2" do
+    test "queries the comp-overview endpoint with the symbol" do
+      response = %{"pe_ttm" => 28.5, "pb_ratio" => 47.1, "eps_ttm" => 6.2}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/comp-overview"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} =
+               FundamentalContext.company_profile(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "dividends/2" do
+    test "queries the dividends endpoint with the symbol" do
+      response = %{
+        "dividends" => [%{"amount" => "0.24", "currency" => "USD", "date" => "2024-02-09"}]
+      }
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/dividends"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} = FundamentalContext.dividends(config_with(server.port), "AAPL.US")
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "valuation/2" do
+    test "queries the valuation endpoint with the symbol" do
+      response = %{"pe_ttm" => 28.5, "pb_ratio" => 47.1}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/valuation"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} = FundamentalContext.valuation(config_with(server.port), "AAPL.US")
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "shareholders/2" do
+    test "queries the shareholders endpoint with the symbol" do
+      response = %{"shareholders" => [%{"name" => "Vanguard", "ratio" => "0.082"}]}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/shareholders"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} =
+               FundamentalContext.shareholders(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "analyst_ratings/2" do
+    test "queries the institution-rating-latest endpoint with the symbol" do
+      response = %{"rating" => "Buy", "target_price" => "200.0"}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/institution-rating-latest"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} =
+               FundamentalContext.analyst_ratings(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "financial_reports/3" do
+    test "queries the financial-reports endpoint with the symbol" do
+      response = %{"income_statement" => [%{"period" => "2023-Q4", "revenue" => "119.6B"}]}
+
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/financial-reports"
+          assert request =~ "symbol=AAPL.US"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+        end)
+
+      assert {:ok, ^response} =
+               FundamentalContext.financial_reports(config_with(server.port), "AAPL.US")
+
+      stop_fake_http_server(server)
+    end
+
+    test "forwards opts as query string parameters" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          assert request =~ "GET /v1/quote/financial-reports"
+          assert request =~ "symbol=AAPL.US"
+          assert request =~ "rpt_type=income_statement"
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert {:ok, _} =
+               FundamentalContext.financial_reports(config_with(server.port), "AAPL.US",
+                 rpt_type: "income_statement"
+               )
+
+      stop_fake_http_server(server)
+    end
+  end
 end

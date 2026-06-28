@@ -235,4 +235,42 @@ defmodule Longbridge.AlertContextTest do
       stop_fake_http_server(server)
     end
   end
+
+  describe "enable_alert/2 (deprecated)" do
+    test "POSTs enable: true with the alert_id" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, path, body} = parse_request(request)
+          assert method == "POST"
+          assert path == "/v1/notify/reminders"
+          decoded = Jason.decode!(body)
+          assert decoded["alert_id"] == "alert-1"
+          assert decoded["enable"] == true
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert {:ok, _} = AlertContext.enable_alert(config_with(server.port), "alert-1")
+      stop_fake_http_server(server)
+    end
+  end
+
+  describe "disable_alert/2 (deprecated)" do
+    test "POSTs enable: false with the alert_id" do
+      server =
+        start_fake_http_server(fn request, socket ->
+          {method, path, body} = parse_request(request)
+          assert method == "POST"
+          assert path == "/v1/notify/reminders"
+          decoded = Jason.decode!(body)
+          assert decoded["alert_id"] == "alert-2"
+          assert decoded["enable"] == false
+
+          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+        end)
+
+      assert {:ok, _} = AlertContext.disable_alert(config_with(server.port), "alert-2")
+      stop_fake_http_server(server)
+    end
+  end
 end
