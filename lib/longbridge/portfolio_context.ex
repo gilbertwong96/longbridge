@@ -65,7 +65,7 @@ defmodule Longbridge.PortfolioContext do
       "/v1/portfolio/profit-analysis/by-market",
       "",
       config,
-      Keyword.put(opts, :params, HTTPClient.build_query(opts))
+      Keyword.put(opts, :params, HTTPClient.build_query(market: opts[:market]))
     )
   end
 
@@ -90,7 +90,15 @@ defmodule Longbridge.PortfolioContext do
       "/v1/portfolio/profit-analysis/detail",
       "",
       config,
-      Keyword.put(opts, :params, HTTPClient.build_query(opts))
+      Keyword.put(
+        opts,
+        :params,
+        HTTPClient.build_query(
+          start_date: opts[:start_date],
+          end_date: opts[:end_date],
+          symbol: opts[:symbol]
+        )
+      )
     )
   end
 end

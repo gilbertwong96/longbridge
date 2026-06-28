@@ -19,7 +19,7 @@ defmodule Longbridge.DCAContext do
       )
   """
 
-  alias Longbridge.{Config, HTTPClient}
+  alias Longbridge.{Config, HTTPClient, Symbol}
 
   @type frequency :: :daily | :weekly | :biweekly | :monthly
 
@@ -84,7 +84,7 @@ defmodule Longbridge.DCAContext do
         page: Keyword.get(opts, :page, 1),
         limit: Keyword.get(opts, :limit, 100),
         status: encode_status(Keyword.get(opts, :status)),
-        counter_id: Keyword.get(opts, :symbol)
+        counter_id: if(symbol = opts[:symbol], do: Symbol.to_counter_id(symbol))
       ]
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> URI.encode_query()

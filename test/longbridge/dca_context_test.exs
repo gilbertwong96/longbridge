@@ -137,6 +137,22 @@ defmodule Longbridge.DCAContextTest do
       assert {:ok, _} = DCAContext.list_plans(config_with(server.port), status: :finished)
       stop_fake_http_server(server)
     end
+
+    test "converts :symbol to a counter_id (not the raw symbol)" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          # to_counter_id/1 converts AAPL.US -> ST/US/AAPL; URI.encode_query
+          # then percent-encodes the slashes.
+          assert parsed.path_with_query =~ "counter_id=ST%2FUS%2FAAPL"
+          refute parsed.path_with_query =~ "counter_id=AAPL.US"
+
+          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+        end)
+
+      assert {:ok, _} = DCAContext.list_plans(config_with(server.port), symbol: "AAPL.US")
+      stop_fake_http_server(server)
+    end
   end
 
   describe "update_plan/2" do

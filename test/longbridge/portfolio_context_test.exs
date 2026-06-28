@@ -66,6 +66,26 @@ defmodule Longbridge.PortfolioContextTest do
       assert {:ok, _} = PortfolioContext.portfolio_pl(config_with(server.port), market: "HK")
       stop_fake_http_server(server)
     end
+
+    test "does not leak HTTP opts (:finch) into the query string" do
+      server =
+        start_fake_http_server(fn conn ->
+          parsed = parse_conn(conn)
+          assert parsed.path_with_query =~ "market=HK"
+          refute parsed.path_with_query =~ "finch"
+          refute parsed.path_with_query =~ "http_url"
+
+          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+        end)
+
+      assert {:ok, _} =
+               PortfolioContext.portfolio_pl(config_with(server.port),
+                 market: "HK",
+                 finch: Longbridge.Finch
+               )
+
+      stop_fake_http_server(server)
+    end
   end
 
   describe "portfolio_positions/2" do
