@@ -94,23 +94,24 @@ jobs:
         timeout-minutes: 15
 
       - name: Run tests with coverage
-        # mix test --cover runs the tests once and produces the
-        # per-module HTML report (cover/*.html) and, via
-        # --export-coverage, the Erlang cover binary at
-        # cover/lcov.info.coverdata. The strict threshold check is
-        # in mix.exs (test_coverage: [summary: [threshold: 80]]).
-        run: mix test --cover --export-coverage lcov.info
+        # mix.exs sets test_coverage: [tool: ExCoveralls, ...], so
+        # `mix test --cover` produces both the per-module HTML
+        # report (cover/*.html) AND the excoveralls JSON
+        # (cover/excoveralls.json) that Codecov ingests correctly.
+        # The strict threshold check (80%) is in mix.exs.
+        run: mix test --cover
 
       - name: Post coverage to Codecov
-        # Use the official Codecov v4 GitHub Action which handles
-        # Erlang cover binary format. The codecov.yml in the repo
-        # root configures the threshold.
+        # Use the official Codecov v4 GitHub Action with the
+        # excoveralls JSON output. The codecov.yml in the repo root
+        # configures the threshold. Skip the step if the secret
+        # is not set.
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         if: env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v5
         with:
-          files: cover/lcov.info.coverdata
+          files: cover/excoveralls.json
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
           verbose: true
@@ -121,6 +122,6 @@ jobs:
         with:
           name: coverage-linux
           path: |
-            cover/lcov.info
+            cover/excoveralls.json
             cover/*.html
           retention-days: 30

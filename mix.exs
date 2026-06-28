@@ -12,7 +12,11 @@ defmodule Longbridge.MixProject do
       docs: docs(),
       aliases: aliases(),
       elixirc_paths: elixirc_paths(Mix.env()),
-      test_coverage: [summary: [threshold: 80], ignore_modules: ignore_modules()],
+      test_coverage: [
+        tool: ExCoveralls,
+        summary: [threshold: 80],
+        ignore_modules: ignore_modules()
+      ],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/project.plt"},
         flags: [:missing_return, :extra_return, :unmatched_returns]
@@ -102,6 +106,7 @@ defmodule Longbridge.MixProject do
       {:finch, "~> 0.18"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
