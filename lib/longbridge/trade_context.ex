@@ -285,25 +285,13 @@ defmodule Longbridge.TradeContext do
   """
   @spec subscribe(pid(), [atom()]) :: :ok | {:error, term()}
   def subscribe(pid, topics \\ [:private]) do
-    topics_str = Enum.map(topics, &topic_to_string/1)
-    req = %Longbridge.Trade.V1.Sub{topics: topics_str}
-
-    case request_raw(pid, 16, req) do
-      {:ok, _body, _req_id} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    GenServer.call(pid, {:subscribe, topics})
   end
 
   @doc "Unsubscribes from trade push data."
   @spec unsubscribe(pid(), [atom()]) :: :ok | {:error, term()}
   def unsubscribe(pid, topics \\ [:private]) do
-    topics_str = Enum.map(topics, &topic_to_string/1)
-    req = %Longbridge.Trade.V1.Unsub{topics: topics_str}
-
-    case request_raw(pid, 17, req) do
-      {:ok, _body, _req_id} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    GenServer.call(pid, {:unsubscribe, topics})
   end
 
   @doc """
@@ -364,6 +352,7 @@ defmodule Longbridge.TradeContext do
     {:ok, ws_config} = Config.with_socket_token(config)
     http_config = config
     finch = Keyword.get(opts, :finch)
+    token_refresher = Keyword.get(opts, :token_refresher)
 
     if Keyword.get(opts, :skip_connection, false) do
       {:ok,
@@ -372,6 +361,8 @@ defmodule Longbridge.TradeContext do
          ws_config: ws_config,
          http_config: http_config,
          finch: finch,
+         token_refresher: token_refresher,
+         subscriptions: MapSet.new(),
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -386,6 +377,8 @@ defmodule Longbridge.TradeContext do
          ws_config: ws_config,
          http_config: http_config,
          finch: finch,
+         token_refresher: token_refresher,
+         subscriptions: MapSet.new(),
          push_callbacks: %{},
          default_push_callback: nil
        }}
@@ -411,6 +404,29 @@ defmodule Longbridge.TradeContext do
     case Longbridge.WSConnection.request(state.conn, cmd_code, body, timeout) do
       {:ok, body, req_id} -> {:reply, {:ok, body, req_id}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:subscribe, topics}, _from, state) do
+    case send_trade_subscribe(state, topics) do
+      :ok ->
+        {:reply, :ok, %{state | subscriptions: Enum.into(topics, state.subscriptions)}}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:unsubscribe, topics}, _from, state) do
+    case send_trade_unsubscribe(state, topics) do
+      :ok ->
+        {:reply, :ok,
+         %{state | subscriptions: MapSet.difference(state.subscriptions, MapSet.new(topics))}}
+
+      {:error, _} = err ->
+        {:reply, err, state}
     end
   end
 
@@ -460,7 +476,13 @@ defmodule Longbridge.TradeContext do
   end
 
   defp retry_after_refresh(method, path, body, state, opts, original_err) do
-    case Config.refresh_access_token(state.http_config) do
+    # Prefer a caller-supplied refresher (e.g. an OAuth refresh_token grant)
+    # when one was passed to start_link/2; fall back to the legacy API-key
+    # refresh. `Config.refresh_access_token/1` only works for legacy
+    # app_key/app_secret auth, so OAuth users must inject a refresher.
+    refresh_fn = state.token_refresher || (&Config.refresh_access_token/1)
+
+    case refresh_fn.(state.http_config) do
       {:ok, new_config} ->
         state = %{state | http_config: new_config}
         retry_result = HTTPClient.request(method, path, body, new_config, opts)
@@ -500,6 +522,21 @@ defmodule Longbridge.TradeContext do
   end
 
   @impl true
+  def handle_info({:longbridge, _conn, {:connected, _session_id}}, state) do
+    # The WS connection (re)connected. Re-apply recorded trade push
+    # subscriptions so order-changed events resume after a reconnect.
+    state =
+      if state.conn != nil and MapSet.size(state.subscriptions) > 0 do
+        _ = send_trade_subscribe(state, MapSet.to_list(state.subscriptions))
+        state
+      else
+        state
+      end
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:longbridge, _conn, msg}, state) do
     {:noreply, state, {:continue, {:process_push, msg}}}
   end
@@ -515,10 +552,33 @@ defmodule Longbridge.TradeContext do
 
   # ── Helpers ──────────────────────────────────────────────
 
-  defp request_raw(pid, cmd_code, req_msg) do
+  defp send_trade_subscribe(state, topics) do
+    topics_str = Enum.map(topics, &topic_to_string/1)
+    req = %Longbridge.Trade.V1.Sub{topics: topics_str}
+    ws_request(state, 16, req)
+  end
+
+  defp send_trade_unsubscribe(state, topics) do
+    topics_str = Enum.map(topics, &topic_to_string/1)
+    req = %Longbridge.Trade.V1.Unsub{topics: topics_str}
+    ws_request(state, 17, req)
+  end
+
+  # Encodes a request and sends it straight to the WS connection (not via
+  # a self GenServer.call, which would deadlock from handle_info/handle_call).
+  defp ws_request(state, cmd_code, req_msg) do
     {:ok, iodata, _size} = Protox.encode(req_msg)
     body = IO.iodata_to_binary(iodata)
-    GenServer.call(pid, {:request, cmd_code, body, 10_000}, 15_000)
+
+    case WSConnection.request(
+           state.conn,
+           cmd_code,
+           body,
+           state.ws_config.request_timeout
+         ) do
+      {:ok, _body, _req_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp schedule_heartbeat(interval) do
