@@ -115,6 +115,28 @@ defmodule Longbridge.DCAContextTest do
 
       stop_fake_http_server(server)
     end
+
+    test "encodes :suspended status as Suspended" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "status=Suspended"
+          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+        end)
+
+      assert {:ok, _} = DCAContext.list_plans(config_with(server.port), status: :suspended)
+      stop_fake_http_server(server)
+    end
+
+    test "encodes :finished status as Finished" do
+      server =
+        start_fake_http_server(fn conn ->
+          assert parse_conn(conn).path_with_query =~ "status=Finished"
+          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+        end)
+
+      assert {:ok, _} = DCAContext.list_plans(config_with(server.port), status: :finished)
+      stop_fake_http_server(server)
+    end
   end
 
   describe "update_plan/2" do
