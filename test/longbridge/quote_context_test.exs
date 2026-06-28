@@ -1306,7 +1306,7 @@ defmodule Longbridge.QuoteContextTest do
         quote_level_detail: nil
       }
 
-      handler = fn client, _tp, cmd_code, req_id, body ->
+      handler = fn client, _tp, cmd_code, req_id, _body ->
         :gen_tcp.send(client, ws_encode_binary(build_push(101, "push-data")))
 
         cond do
@@ -1500,7 +1500,6 @@ defmodule Longbridge.QuoteContextTest do
     end
 
     test "realtime_quote/2 returns cached PushQuote after a push" do
-      test_pid = self()
       push_quote = %Q.PushQuote{symbol: "AAPL.US", sequence: 1, last_done: "150.00"}
 
       sid = "sess-rtquote#{System.unique_integer([:positive])}"
@@ -1555,7 +1554,6 @@ defmodule Longbridge.QuoteContextTest do
     end
 
     test "realtime_depth/2 returns cached PushDepth" do
-      test_pid = self()
       push_depth = %Q.PushDepth{symbol: "AAPL.US", sequence: 1}
 
       sid = "sess-rtdepth#{System.unique_integer([:positive])}"

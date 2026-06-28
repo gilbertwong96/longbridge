@@ -2,7 +2,6 @@ defmodule Longbridge.WSConnection.RateLimitThrottleTest do
   use ExUnit.Case, async: false
 
   alias Longbridge.{Config, Protocol, WSConnection}
-  alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol.Header
   alias Longbridge.WSConnection.RateLimit
 
@@ -114,7 +113,7 @@ defmodule Longbridge.WSConnection.RateLimitThrottleTest do
     [header, payload]
   end
 
-  defp ws_recv(socket, timeout \\ 10_000) do
+  defp ws_recv(socket, timeout) do
     case :gen_tcp.recv(socket, 2, timeout) do
       {:ok, <<fin_opcode::8, mask_len::8>>} ->
         opcode = fin_opcode &&& 0x0F
