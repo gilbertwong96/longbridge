@@ -42,7 +42,19 @@ defmodule Longbridge.MixProject do
       extras: ["README.md"],
       skip_undefined_reference_warnings_on: [
         "README.md",
-        "lib/longbridge/quote_context.ex"
+        "lib/longbridge/quote_context.ex",
+        # References `Longbridge.OAuth.token_path/1` which is @doc false
+        # (a back-compat shim kept for callers that imported it before
+        # the public function was moved to FileTokenStorage).
+        "lib/longbridge/oauth/file_token_storage.ex",
+        # References `Longbridge.Connection.Session` defdelegates which
+        # are @doc false (the Session module is internal-only; the
+        # defdelegate is for clarity in the WSConnection code).
+        "lib/longbridge/ws_connection.ex",
+        # References `Longbridge.Application` which is @doc false
+        # (Application modules are entrypoints, not part of the
+        # public API).
+        "lib/longbridge/symbol/store.ex"
       ]
     ]
   end
