@@ -39,9 +39,10 @@ defmodule Longbridge.MixProject do
       main: "readme",
       source_url: "https://github.com/gilbertwong96/longbridge",
       homepage_url: "https://github.com/gilbertwong96/longbridge",
-      extras: ["README.md"],
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       skip_undefined_reference_warnings_on: [
         "README.md",
+        "CHANGELOG.md",
         "lib/longbridge/quote_context.ex",
         # References `Longbridge.OAuth.token_path/1` which is @doc false
         # (a back-compat shim kept for callers that imported it before
@@ -142,7 +143,7 @@ defmodule Longbridge.MixProject do
         "Upstream" => "https://github.com/longbridge/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
-      files: ~w[lib protos .formatter.exs mix.exs README.md]
+      files: ~w[lib protos .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
     ]
   end
 end
