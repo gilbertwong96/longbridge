@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] — Initial beta release
+
+Initial public beta. The SDK implements the Longbridge OpenAPI binary protocol
+over WebSocket for the **quote** and **trade** endpoints, plus 8 HTTP-backed
+context modules for alerts, asset, calendar, content, DCA, fundamental,
+market, portfolio, screener, sharelist, and quote-HTTP endpoints.
+
+The SDK is feature-complete against the upstream protocol for the pinned
+`longbridge/openapi-protobufs@gen/go/v0.7.0` protobuf definitions.
+
 ### Added
 
 - **`Longbridge.QuoteContext` realtime push-data cache** — `realtime_quote/2`,
@@ -51,27 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which don't exist. Now use `PUT /v1/trade/order` and
   `DELETE /v1/trade/order?order_id=...` matching upstream.
 
-### Test coverage
-
-- 493 tests pass (up from 466), 0 credo, 0 dialyzer, 0 ex_dna, 0 reach.
-- Total coverage: 89.02% (above 89% threshold).
-- `Longbridge.TradeContext`: 84.28% → 99.30%.
-- `Longbridge.QuoteContext.RealtimeStore`: 75.86% → 100%.
-
-## [0.1.0] — Initial beta release
-
-### Added
-
-Initial public beta. The SDK implements the Longbridge OpenAPI binary
-protocol over WebSocket (TCP transport was removed during beta) for the
-**quote** and **trade** endpoints, plus 8 HTTP-backed context modules for
-alerts, asset, calendar, content, DCA, fundamental, market, portfolio,
-screener, sharelist, and quote-HTTP endpoints.
-
-The SDK is feature-complete against the upstream protocol for the pinned
-`longbridge/openapi-protobufs@gen/go/v0.7.0` protobuf definitions.
-
-#### Endpoints
+### Endpoints
 
 - **QuoteContext** (28 methods) — static_info, quote, option_quote,
   warrant_quote, depth, brokers, participant_broker_ids, trades, intraday,
@@ -92,7 +82,7 @@ The SDK is feature-complete against the upstream protocol for the pinned
   ContentContext, DCAContext, FundamentalContext, MarketContext,
   PortfolioContext, ScreenerContext, SharelistContext
 
-#### Transport
+### Transport
 
 - WebSocket transport via Mint + Finch (binary protocol with custom
   11/10/5-byte header layouts, gzip-compressed response bodies)
@@ -100,5 +90,12 @@ The SDK is feature-complete against the upstream protocol for the pinned
 - Pluggable OAuth token storage (`Longbridge.OAuth.TokenStorage` behaviour)
   with default `Longbridge.OAuth.FileTokenStorage`
 
-[Unreleased]: https://github.com/longbridge/longbridge-elixir/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/longbridge/longbridge-elixir/releases/tag/v0.1.0
+### Test coverage
+
+- 642 tests pass, 0 credo, 0 dialyzer, 0 ex_dna, 0 reach.
+- Total coverage: 90.8% (above 89% threshold).
+- `Longbridge.TradeContext`: 95.9%.
+- `Longbridge.QuoteContext.RealtimeStore`: 100%.
+
+[Unreleased]: https://github.com/gilbertwong96/longbridge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gilbertwong96/longbridge/releases/tag/v0.1.0
