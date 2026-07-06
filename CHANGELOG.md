@@ -5,7 +5,9 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1]
+## [Unreleased]
+
+## [0.1.2]
 
 ### Changed
 
@@ -14,15 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files: [...]`. **Downstream consumers no longer need `protoc` installed** to
   compile the SDK. `protoc` is only required for maintainers regenerating the
   modules after a `.proto` change (run `mix gen_protos`). The `protos/` source
-  files are no longer included in the Hex package.
+  files are kept in the package so consumers can inspect the schema.
+- **Removed the `protoc` build-time requirement** from the README installation
+  instructions (no longer needed thanks to pre-generated modules).
+
+## [0.1.1]
+
+### Changed
+
 - **Dropped the `jason` dependency** in favor of the built-in `JSON` module
   (Elixir 1.20+). All encode/decode call sites in `lib/` and `test/` now use
   `JSON.encode!/1` / `JSON.decode/1`. `jason` remains only as a transitive
   dependency of `req` and `ex_doc`.
 - **Removed the redundant License section** from the README; the MIT LICENSE
   file now ships with the package and is linked via the badge.
-- **Removed the `protoc` build-time requirement** from the README installation
-  instructions (no longer needed thanks to pre-generated modules).
 
 ## [0.1.0] — Initial beta release
 
@@ -114,6 +121,7 @@ The SDK is feature-complete against the upstream protocol for the pinned
 - `Longbridge.TradeContext`: 95.9%.
 - `Longbridge.QuoteContext.RealtimeStore`: 100%.
 
-[Unreleased]: https://github.com/gilbertwong96/longbridge/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/gilbertwong96/longbridge/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/gilbertwong96/longbridge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/gilbertwong96/longbridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gilbertwong96/longbridge/releases/tag/v0.1.0

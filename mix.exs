@@ -4,7 +4,7 @@ defmodule Longbridge.MixProject do
   def project do
     [
       app: :longbridge,
-      version: "0.1.1",
+      version: "0.1.2",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       package: package(),
@@ -147,7 +147,7 @@ defmodule Longbridge.MixProject do
         "Upstream" => "https://github.com/longbridge/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
-      files: ~w[lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
+      files: ~w[lib protos .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
     ]
   end
 end
