@@ -125,7 +125,7 @@ defmodule Longbridge.ContentContext do
   @spec create_topic(Config.t(), keyword(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def create_topic(%Config{} = config, opts, http_opts \\ []) do
-    body = Jason.encode!(Map.new(opts))
+    body = JSON.encode!(Map.new(opts))
 
     case HTTPClient.request_json(:post, @topics_path, body, config, http_opts) do
       {:ok, %{"id" => id}} when is_binary(id) -> {:ok, id}
@@ -189,7 +189,7 @@ defmodule Longbridge.ContentContext do
           {:ok, map()} | {:error, term()}
   def create_topic_reply(%Config{} = config, topic_id, opts, http_opts \\ [])
       when is_binary(topic_id) do
-    body = Jason.encode!(Map.new(opts))
+    body = JSON.encode!(Map.new(opts))
     path = @topic_path_prefix <> topic_id <> @topic_comments_suffix
     HTTPClient.request_json(:post, path, body, config, http_opts)
   end

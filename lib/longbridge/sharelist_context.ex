@@ -33,7 +33,7 @@ defmodule Longbridge.SharelistContext do
   """
   @spec create(Config.t(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
   def create(%Config{} = config, opts, http_opts \\ []) do
-    body = Jason.encode!(Map.new(opts))
+    body = JSON.encode!(Map.new(opts))
     HTTPClient.request_json(:post, @base, body, config, http_opts)
   end
 
@@ -94,7 +94,7 @@ defmodule Longbridge.SharelistContext do
   @spec rename(Config.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def rename(%Config{} = config, sharelist_id, name, opts \\ []) do
-    body = Jason.encode!(%{name: name})
+    body = JSON.encode!(%{name: name})
     HTTPClient.request_json(:post, "#{@base}/#{sharelist_id}", body, config, opts)
   end
 
@@ -107,7 +107,7 @@ defmodule Longbridge.SharelistContext do
   @spec add_symbols(Config.t(), String.t(), [String.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
   def add_symbols(%Config{} = config, sharelist_id, symbols, opts \\ []) do
-    body = Jason.encode!(%{symbols: symbols})
+    body = JSON.encode!(%{symbols: symbols})
     HTTPClient.request_json(:post, "#{@base}/#{sharelist_id}/items", body, config, opts)
   end
 
@@ -120,7 +120,7 @@ defmodule Longbridge.SharelistContext do
   @spec remove_symbols(Config.t(), String.t(), [String.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
   def remove_symbols(%Config{} = config, sharelist_id, symbols, opts \\ []) do
-    body = Jason.encode!(%{symbols: symbols})
+    body = JSON.encode!(%{symbols: symbols})
     HTTPClient.request_json(:delete, "#{@base}/#{sharelist_id}/items", body, config, opts)
   end
 

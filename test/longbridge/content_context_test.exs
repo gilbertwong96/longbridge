@@ -93,7 +93,7 @@ defmodule Longbridge.ContentContextTest do
           assert request =~ "size=25"
           assert request =~ "topic_type=article"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -115,7 +115,7 @@ defmodule Longbridge.ContentContextTest do
       server =
         start_fake_http_server(fn _request, socket ->
           payload =
-            Jason.encode!(%{"code" => 0, "data" => [%{"id" => "1", "title" => "post"}]})
+            JSON.encode!(%{"code" => 0, "data" => [%{"id" => "1", "title" => "post"}]})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -128,7 +128,7 @@ defmodule Longbridge.ContentContextTest do
     test "returns empty list when data is missing or malformed" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"unexpected" => "shape"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"unexpected" => "shape"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -146,14 +146,14 @@ defmodule Longbridge.ContentContextTest do
           assert method == "POST"
           assert request =~ "/v1/content/topics"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["title"] == "Hello world"
           assert decoded["body"] == "First post body"
           assert decoded["topic_type"] == "post"
           assert decoded["tickers"] == ["AAPL.US"]
           assert decoded["hashtags"] == ["elixir"]
 
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => "topic-123"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"id" => "topic-123"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -172,7 +172,7 @@ defmodule Longbridge.ContentContextTest do
     test "accepts a flat id in the response" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => "abc-def"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"id" => "abc-def"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -188,7 +188,7 @@ defmodule Longbridge.ContentContextTest do
     test "coerces a non-binary id to a string" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => 42}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"id" => 42}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -204,7 +204,7 @@ defmodule Longbridge.ContentContextTest do
     test "accepts a nested item.id in the response" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => "nested-id"}}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => "nested-id"}}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -220,7 +220,7 @@ defmodule Longbridge.ContentContextTest do
     test "coerces a nested non-binary id to a string" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => 7}}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"item" => %{"id" => 7}}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -243,13 +243,9 @@ defmodule Longbridge.ContentContextTest do
           assert path == "/v1/content/topics/topic-123"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               "code" => 0,
-              "data" => %{
-                "id" => "topic-123",
-                "title" => "Hello",
-                "body" => "First post body"
-              }
+              "data" => %{"id" => "topic-123", "title" => "Hello", "body" => "First post body"}
             })
 
           :gen_tcp.send(socket, http_ok(payload))
@@ -277,7 +273,7 @@ defmodule Longbridge.ContentContextTest do
           assert request =~ "size=10"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               "code" => 0,
               "data" => %{
                 "items" => [
@@ -306,7 +302,7 @@ defmodule Longbridge.ContentContextTest do
     test "accepts a flat list response" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => [%{"id" => "r1"}]})
+          payload = JSON.encode!(%{"code" => 0, "data" => [%{"id" => "r1"}]})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -325,15 +321,12 @@ defmodule Longbridge.ContentContextTest do
           assert method == "POST"
           assert path == "/v1/content/topics/topic-123/comments"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["body"] == "Nice post!"
           assert decoded["reply_to_id"] == "r1"
 
           payload =
-            Jason.encode!(%{
-              "code" => 0,
-              "data" => %{"id" => "r-new", "body" => "Nice post!"}
-            })
+            JSON.encode!(%{"code" => 0, "data" => %{"id" => "r-new", "body" => "Nice post!"}})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -360,7 +353,7 @@ defmodule Longbridge.ContentContextTest do
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/content/AAPL.US/news"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} = ContentContext.news(config_with(server.port), "AAPL.US")
@@ -373,7 +366,7 @@ defmodule Longbridge.ContentContextTest do
           assert request =~ "/v1/content/AAPL.US/news"
           assert request =~ "page_size=20"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert {:ok, _} = ContentContext.news(config_with(server.port), "AAPL.US", page_size: 20)
@@ -389,7 +382,7 @@ defmodule Longbridge.ContentContextTest do
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/content/AAPL.US/topics"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} = ContentContext.topics(config_with(server.port), "AAPL.US")
@@ -402,7 +395,7 @@ defmodule Longbridge.ContentContextTest do
           assert request =~ "/v1/content/AAPL.US/topics"
           assert request =~ "page=2"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert {:ok, _} = ContentContext.topics(config_with(server.port), "AAPL.US", page: 2)
@@ -421,7 +414,7 @@ defmodule Longbridge.ContentContextTest do
       server =
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/content/topics/topic-123"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       config =
@@ -445,7 +438,7 @@ defmodule Longbridge.ContentContextTest do
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/content/topics/mine"
           assert request =~ "page=2"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => []})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => []})))
         end)
 
       config =

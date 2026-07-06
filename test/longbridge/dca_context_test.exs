@@ -30,12 +30,12 @@ defmodule Longbridge.DCAContextTest do
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/dailycoins/create"
 
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["symbol"] == "AAPL.US"
           assert decoded["amount"] == "100"
           assert decoded["allow_margin"] == false
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plan_id" => "p1"}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plan_id" => "p1"}}))
         end)
 
       assert {:ok, %{"plan_id" => "p1"}} =
@@ -53,9 +53,9 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["allow_margin"] == true
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -79,7 +79,7 @@ defmodule Longbridge.DCAContextTest do
           assert parsed.path_with_query =~ "page=1"
           assert parsed.path_with_query =~ "limit=100"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, %{"plans" => []}} = DCAContext.list_plans(config_with(server.port))
@@ -92,7 +92,7 @@ defmodule Longbridge.DCAContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "status=Active"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, _} =
@@ -107,7 +107,7 @@ defmodule Longbridge.DCAContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "status=custom-status"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, _} =
@@ -120,7 +120,7 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "status=Suspended"
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, _} = DCAContext.list_plans(config_with(server.port), status: :suspended)
@@ -131,7 +131,7 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "status=Finished"
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, _} = DCAContext.list_plans(config_with(server.port), status: :finished)
@@ -147,7 +147,7 @@ defmodule Longbridge.DCAContextTest do
           assert parsed.path_with_query =~ "counter_id=ST%2FUS%2FAAPL"
           refute parsed.path_with_query =~ "counter_id=AAPL.US"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"plans" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"plans" => []}}))
         end)
 
       assert {:ok, _} = DCAContext.list_plans(config_with(server.port), symbol: "AAPL.US")
@@ -161,9 +161,9 @@ defmodule Longbridge.DCAContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query == "/v1/dailycoins/update"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["plan_id"] == "p1"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -182,10 +182,10 @@ defmodule Longbridge.DCAContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query == "/v1/dailycoins/toggle"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["plan_id"] == "p1"
           assert decoded["status"] == "Suspended"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = DCAContext.pause_plan(config_with(server.port), "p1")
@@ -196,9 +196,9 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["status"] == "Active"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = DCAContext.resume_plan(config_with(server.port), "p1")
@@ -209,9 +209,9 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["status"] == "Finished"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = DCAContext.delete_plan(config_with(server.port), "p1")
@@ -224,7 +224,7 @@ defmodule Longbridge.DCAContextTest do
       server =
         start_fake_http_server(fn conn ->
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: %{
                 plans: [
@@ -246,7 +246,7 @@ defmodule Longbridge.DCAContextTest do
     test "returns nil when the plan_id is not in the list" do
       server =
         start_fake_http_server(fn conn ->
-          payload = Jason.encode!(%{code: 0, data: %{plans: []}})
+          payload = JSON.encode!(%{code: 0, data: %{plans: []}})
           ok(conn, payload)
         end)
 
@@ -257,7 +257,7 @@ defmodule Longbridge.DCAContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn conn ->
-          payload = Jason.encode!(%{code: 403, message: "forbidden", data: nil})
+          payload = JSON.encode!(%{code: 403, message: "forbidden", data: nil})
           ok(conn, payload)
         end)
 

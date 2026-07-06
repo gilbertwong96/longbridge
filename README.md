@@ -136,7 +136,7 @@ config. The new `token` and `expired_at` are set on the result.
 Internally this calls Longbridge's `GET /v1/token/refresh` HTTP
 endpoint, signed with HMAC-SHA256 using the same scheme as the
 official Python / Go SDKs. No new dependency beyond the existing
-`finch` (HTTP) and `jason` (JSON) deps is required.
+`finch` (HTTP) dep is required.
 
 ## Working with monetary values
 
@@ -211,7 +211,7 @@ defmodule MyApp.RedisStorage do
 
   @impl true
   def save(client_id, token) do
-    Redix.command(:redix, ["SET", "oauth:token:#{client_id}", Jason.encode!(token)])
+    Redix.command(:redix, ["SET", "oauth:token:#{client_id}", JSON.encode!(token)])
     :ok
   end
 end

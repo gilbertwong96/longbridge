@@ -86,7 +86,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "count=20"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: [
                 %{
@@ -121,7 +121,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => []}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => []}))
           )
         end)
 
@@ -136,7 +136,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"unexpected" => "shape"}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"unexpected" => "shape"}}))
           )
         end)
 
@@ -155,13 +155,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "symbol=AAPL230317P160000.US"
 
           payload =
-            Jason.encode!(%{
-              code: 0,
-              data: %{
-                "c" => "50000",
-                "p" => "40000"
-              }
-            })
+            JSON.encode!(%{code: 0, data: %{"c" => "50000", "p" => "40000"}})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -186,7 +180,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "end=2024-06-30"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: %{
                 stats: [
@@ -230,7 +224,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "market=US"
           assert request =~ "category=Overnight"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -255,7 +249,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -274,7 +268,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
       server =
         start_fake_http_server(fn _request, socket ->
           payload =
-            Jason.encode!(%{"code" => 0, "data" => [%{"symbol" => "TSLA.US"}]})
+            JSON.encode!(%{"code" => 0, "data" => [%{"symbol" => "TSLA.US"}]})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -292,14 +286,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
       server =
         start_fake_http_server(fn _request, socket ->
           payload =
-            Jason.encode!(%{
-              code: 0,
-              data: %{
-                list: [
-                  %{"symbol" => "AAPL.US"}
-                ]
-              }
-            })
+            JSON.encode!(%{code: 0, data: %{list: [%{"symbol" => "AAPL.US"}]}})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -316,7 +303,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "returns [] when neither flat list nor %{\"list\" => _} present" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{code: 0, data: %{"other" => "x"}})
+          payload = JSON.encode!(%{code: 0, data: %{"other" => "x"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -337,7 +324,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "market=HK"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: %{"temperature" => 65, "sentiment" => "Greed", "market" => "HK"}
             })
@@ -362,7 +349,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "end_date=2024-06-30"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: %{
                 "list" => [
@@ -403,7 +390,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "last_timestamp=0"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: [
                 %{
@@ -433,7 +420,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => []}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => []}))
           )
         end)
 
@@ -451,7 +438,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -467,7 +454,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "returns [] when data is not a list and has no list wrapper" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -485,7 +472,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "GET /v1/watchlist/groups"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               "code" => 0,
               "data" => %{
                 "groups" => [
@@ -510,7 +497,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "accepts a flat list response" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => [%{"id" => "1"}]})
+          payload = JSON.encode!(%{"code" => 0, "data" => [%{"id" => "1"}]})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -523,7 +510,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "returns [] when data is neither groups nor a list" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -540,11 +527,11 @@ defmodule Longbridge.QuoteHTTPContextTest do
           {method, _path, body} = parse_request(request)
           assert method == "POST"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["name"] == "Tech"
           assert decoded["securities"] == ["AAPL.US", "NVDA.US"]
 
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => "group-42"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"id" => "group-42"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -561,7 +548,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "accepts integer id" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"id" => 123}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"id" => 123}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -578,7 +565,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "accepts group_id key (legacy)" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"group_id" => "group-99"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"group_id" => "group-99"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -595,7 +582,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "returns :missing_id when neither id nor group_id present" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"other" => "x"}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -612,7 +599,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
+          payload = JSON.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -635,13 +622,13 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert method == "DELETE"
           assert path == "/v1/watchlist/groups"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["id"] == "group-1"
           assert decoded["purge"] == true
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -660,7 +647,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -682,7 +669,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert method == "PUT"
           assert path == "/v1/watchlist/groups"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["id"] == "group-1"
           assert decoded["name"] == "Tech"
           assert decoded["securities"] == ["AAPL.US"]
@@ -690,7 +677,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -712,7 +699,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           start_fake_http_server(fn _request, socket ->
             :gen_tcp.send(
               socket,
-              http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+              http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
             )
           end)
 
@@ -733,9 +720,9 @@ defmodule Longbridge.QuoteHTTPContextTest do
       server =
         start_fake_http_server(fn request, socket ->
           {_method, _path, body} = parse_request(request)
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["mode"] == "custom-mode"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert :ok =
@@ -753,7 +740,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
+          payload = JSON.encode!(%{"code" => 403, "message" => "forbidden", "data" => nil})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -778,14 +765,14 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert method == "POST"
           assert request =~ "/v1/quote/watchlist/pinned"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["group_id"] == "group-1"
           assert decoded["symbol"] == "AAPL.US"
           assert decoded["is_pinned"] == true
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -804,12 +791,12 @@ defmodule Longbridge.QuoteHTTPContextTest do
       server =
         start_fake_http_server(fn request, socket ->
           {_method, _path, body} = parse_request(request)
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["is_pinned"] == false
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -833,7 +820,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "symbol=AAPL.US"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
               data: %{
                 items: [
@@ -867,7 +854,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"items" => []}}))
           )
         end)
 
@@ -881,7 +868,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -899,14 +886,9 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ ~s("ticker_regions":["AAPL.US","700.HK"])
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
-              data: %{
-                list: %{
-                  "AAPL.US" => "ST/US/AAPL",
-                  "700.HK" => "ST/HK/700"
-                }
-              }
+              data: %{list: %{"AAPL.US" => "ST/US/AAPL", "700.HK" => "ST/HK/700"}}
             })
 
           :gen_tcp.send(socket, http_ok(payload))
@@ -926,7 +908,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -944,10 +926,7 @@ defmodule Longbridge.QuoteHTTPContextTest do
           assert request =~ "GET /v1/quote/option-volume-stats"
 
           payload =
-            Jason.encode!(%{
-              code: 0,
-              data: %{"c" => "12345", "p" => "6789"}
-            })
+            JSON.encode!(%{code: 0, data: %{"c" => "12345", "p" => "6789"}})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)

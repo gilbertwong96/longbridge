@@ -175,18 +175,22 @@ defmodule Longbridge.MarketContext do
   @spec top_movers(Config.t(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
   def top_movers(%Config{} = config, opts \\ [], http_opts \\ []) do
     body =
-      opts
-      |> Map.new()
-      |> Map.put_new(:markets, [])
-      |> Map.put_new(:sort, 0)
-      |> Map.put_new(:limit, 20)
-      |> Enum.map(fn
-        {:markets, list} -> {:markets, Enum.map(list, &to_string/1)}
-        {:sort, atom} when is_atom(atom) -> {:sort, encode_top_movers_sort(atom)}
-        other -> other
-      end)
-      |> Map.new()
-      |> Jason.encode!()
+      JSON.encode!(
+        Map.new(
+          Enum.map(
+            Map.put_new(
+              Map.put_new(Map.put_new(Map.new(opts), :markets, []), :sort, 0),
+              :limit,
+              20
+            ),
+            fn
+              {:markets, list} -> {:markets, Enum.map(list, &to_string/1)}
+              {:sort, atom} when is_atom(atom) -> {:sort, encode_top_movers_sort(atom)}
+              other -> other
+            end
+          )
+        )
+      )
 
     HTTPClient.request_json(:post, @top_movers_path, body, config, http_opts)
   end

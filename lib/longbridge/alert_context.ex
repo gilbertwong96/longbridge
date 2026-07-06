@@ -37,7 +37,7 @@ defmodule Longbridge.AlertContext do
   """
   @spec add_alert(Config.t(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
   def add_alert(%Config{} = config, opts, http_opts \\ []) do
-    body = Jason.encode!(Map.new(opts))
+    body = JSON.encode!(Map.new(opts))
     HTTPClient.request_json(:post, @reminders_path, body, config, http_opts)
   end
 
@@ -66,7 +66,7 @@ defmodule Longbridge.AlertContext do
   def update(%Config{} = config, item, enabled, opts \\ [])
       when is_map(item) and is_boolean(enabled) do
     body =
-      Jason.encode!(Map.merge(item, %{id: Map.get(item, "id"), enabled: enabled}))
+      JSON.encode!(Map.merge(item, %{id: Map.get(item, "id"), enabled: enabled}))
 
     HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
@@ -83,7 +83,7 @@ defmodule Longbridge.AlertContext do
   @deprecated "Use update/3 with the alert item from list_alerts/1"
   @spec enable_alert(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def enable_alert(%Config{} = config, alert_id, opts \\ []) do
-    body = Jason.encode!(%{alert_id: alert_id, enable: true})
+    body = JSON.encode!(%{alert_id: alert_id, enable: true})
     HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
 
@@ -96,7 +96,7 @@ defmodule Longbridge.AlertContext do
   @deprecated "Use update/3 with the alert item from list_alerts/1"
   @spec disable_alert(Config.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def disable_alert(%Config{} = config, alert_id, opts \\ []) do
-    body = Jason.encode!(%{alert_id: alert_id, enable: false})
+    body = JSON.encode!(%{alert_id: alert_id, enable: false})
     HTTPClient.request_json(:post, @reminders_path, body, config, opts)
   end
 
@@ -118,7 +118,7 @@ defmodule Longbridge.AlertContext do
         bin -> [bin]
       end
 
-    body = Jason.encode!(%{ids: ids})
+    body = JSON.encode!(%{ids: ids})
     HTTPClient.request_json(:delete, @reminders_path, body, config, opts)
   end
 end

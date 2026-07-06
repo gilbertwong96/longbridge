@@ -186,7 +186,7 @@ defmodule Longbridge.ScreenerContext do
         mode_b_body(market, conditions, show, page, size)
       end
 
-    body = Jason.encode!(body_map)
+    body = JSON.encode!(body_map)
 
     case HTTPClient.request_json(:post, @strategy_search_path, body, config, http_opts) do
       {:ok, data} when is_map(data) ->

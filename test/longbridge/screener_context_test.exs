@@ -31,7 +31,7 @@ defmodule Longbridge.ScreenerContextTest do
   defp body_json(conn) do
     parsed = parse_conn(conn)
 
-    case Jason.decode(parsed.body) do
+    case JSON.decode(parsed.body) do
       {:ok, decoded} -> decoded
       _ -> %{}
     end
@@ -46,11 +46,9 @@ defmodule Longbridge.ScreenerContextTest do
           assert parsed.path_with_query == @path_strategy_recommend <> "?market=US"
 
           body =
-            Jason.encode!(%{
+            JSON.encode!(%{
               code: 0,
-              data: %{
-                "strategies" => [%{"id" => 1, "name" => "Top Value"}]
-              }
+              data: %{"strategies" => [%{"id" => 1, "name" => "Top Value"}]}
             })
 
           ok(conn, body)
@@ -118,7 +116,7 @@ defmodule Longbridge.ScreenerContextTest do
           assert parsed.method == "GET"
           assert parsed.path_with_query == @path_strategy_detail <> "42"
 
-          ok(conn, Jason.encode!(strategy_response))
+          ok(conn, JSON.encode!(strategy_response))
         end)
 
       assert {:ok,
@@ -146,7 +144,7 @@ defmodule Longbridge.ScreenerContextTest do
 
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(strategy_response))
+          ok(conn, JSON.encode!(strategy_response))
         end)
 
       assert {:ok, %{"filter" => %{"filters" => [%{"key" => "roe"}]}}} =
@@ -163,7 +161,7 @@ defmodule Longbridge.ScreenerContextTest do
 
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(strategy_response))
+          ok(conn, JSON.encode!(strategy_response))
         end)
 
       assert {:ok, %{"id" => 42, "name" => "No filter"}} =
@@ -183,7 +181,7 @@ defmodule Longbridge.ScreenerContextTest do
 
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(strategy_response))
+          ok(conn, JSON.encode!(strategy_response))
         end)
 
       assert {:ok, %{"filter" => %{"filters" => [%{"min" => "5", "max" => "10"}]}}} =
@@ -202,7 +200,7 @@ defmodule Longbridge.ScreenerContextTest do
           assert parsed.path_with_query == @path_strategy_search
 
           body =
-            case Jason.decode(parsed.body) do
+            case JSON.decode(parsed.body) do
               {:ok, decoded} -> decoded
               _ -> %{}
             end
@@ -273,7 +271,7 @@ defmodule Longbridge.ScreenerContextTest do
 
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(response))
+          ok(conn, JSON.encode!(response))
         end)
 
       assert {:ok,
@@ -405,7 +403,7 @@ defmodule Longbridge.ScreenerContextTest do
           assert parsed.method == "GET"
           assert parsed.path_with_query == @path_indicators
 
-          ok(conn, Jason.encode!(response))
+          ok(conn, JSON.encode!(response))
         end)
 
       assert {:ok,
@@ -453,7 +451,7 @@ defmodule Longbridge.ScreenerContextTest do
 
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(response))
+          ok(conn, JSON.encode!(response))
         end)
 
       assert {:ok, %{"groups" => [%{"indicators" => [%{"key" => "roe"}]}]}} =

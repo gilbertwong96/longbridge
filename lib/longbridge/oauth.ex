@@ -281,7 +281,7 @@ defmodule Longbridge.OAuth do
     finch = Keyword.get(opts, :finch, Longbridge.Finch)
 
     body =
-      Jason.encode!(%{
+      JSON.encode!(%{
         client_name: Keyword.get(opts, :client_name, "My Longbridge OpenAPI"),
         redirect_uris: Keyword.get(opts, :redirect_uris, ["http://127.0.0.1:60355/callback"]),
         token_endpoint_auth_method: "none",
@@ -602,13 +602,13 @@ defmodule Longbridge.OAuth do
 
     case Finch.request(request, finch, receive_timeout: 15_000) do
       {:ok, %Finch.Response{status: status, body: resp_body}} when status in 200..299 ->
-        case Jason.decode(resp_body) do
+        case JSON.decode(resp_body) do
           {:ok, parsed} -> {:ok, parsed}
           {:error, _} -> {:error, :invalid_json}
         end
 
       {:ok, %Finch.Response{status: status, body: resp_body}} ->
-        case Jason.decode(resp_body) do
+        case JSON.decode(resp_body) do
           {:ok, data} -> parse_token_response(data)
           {:error, _} -> {:error, {:http_status, status, resp_body}}
         end
@@ -624,7 +624,7 @@ defmodule Longbridge.OAuth do
 
     case Finch.request(request, finch, receive_timeout: 15_000) do
       {:ok, %Finch.Response{status: status, body: resp_body}} when status in 200..299 ->
-        Jason.decode(resp_body)
+        JSON.decode(resp_body)
 
       {:ok, %Finch.Response{status: status, body: resp_body}} ->
         {:error, {:http_status, status, resp_body}}

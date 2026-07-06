@@ -107,7 +107,6 @@ defmodule Longbridge.MixProject do
 
   defp deps do
     [
-      {:jason, "~> 1.4"},
       {:protox, "~> 2.0"},
       {:openapi_protobuf_specs,
        github: "longbridge/openapi-protobufs",

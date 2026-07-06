@@ -92,7 +92,7 @@ defmodule Longbridge.FundamentalContext do
         currency: currency,
         comparison_counter_ids:
           if comparison_symbols do
-            Jason.encode!(Enum.map(comparison_symbols, &Symbol.to_counter_id/1))
+            JSON.encode!(Enum.map(comparison_symbols, &Longbridge.Symbol.to_counter_id/1))
           end
       )
 

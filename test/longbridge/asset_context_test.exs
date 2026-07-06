@@ -27,7 +27,7 @@ defmodule Longbridge.AssetContextTest do
           assert parsed.path_with_query =~ "/v1/statement/list"
           assert parsed.path_with_query =~ "statement_type=1"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"list" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"list" => []}}))
         end)
 
       assert {:ok, %{"list" => []}} = AssetContext.statements(config_with(server.port))
@@ -40,7 +40,7 @@ defmodule Longbridge.AssetContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "statement_type=2"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = AssetContext.statements(config_with(server.port), type: :monthly)
@@ -54,7 +54,7 @@ defmodule Longbridge.AssetContextTest do
           assert parsed.path_with_query =~ "page=2"
           assert parsed.path_with_query =~ "page_size=50"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -66,7 +66,7 @@ defmodule Longbridge.AssetContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(%{code: 401, message: "forbidden", data: nil}))
+          ok(conn, JSON.encode!(%{code: 401, message: "forbidden", data: nil}))
         end)
 
       assert {:error, {:api_error, 401, "forbidden"}} =
@@ -85,7 +85,7 @@ defmodule Longbridge.AssetContextTest do
           assert parsed.path_with_query =~ "/v1/statement/download"
           assert parsed.path_with_query =~ "file_key=abc-123"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"url" => "https://example.com/x"}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"url" => "https://example.com/x"}}))
         end)
 
       assert {:ok, %{"url" => "https://example.com/x"}} =
@@ -101,7 +101,7 @@ defmodule Longbridge.AssetContextTest do
           # URI.encode_www_form uses + for spaces
           assert parsed.path_with_query =~ "file_key=key+with+space"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -113,7 +113,7 @@ defmodule Longbridge.AssetContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(%{code: 404, message: "not found", data: nil}))
+          ok(conn, JSON.encode!(%{code: 404, message: "not found", data: nil}))
         end)
 
       assert {:error, {:api_error, 404, "not found"}} =
@@ -130,7 +130,7 @@ defmodule Longbridge.AssetContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "GET"
           assert parsed.path_with_query =~ "/v1/statement/download"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       config =

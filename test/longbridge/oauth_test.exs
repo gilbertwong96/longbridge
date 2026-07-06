@@ -424,11 +424,11 @@ defmodule Longbridge.OAuthTest do
     File.mkdir_p!(Path.dirname(path))
 
     json =
-      Jason.encode!(%{
-        access_token: token.access_token,
-        refresh_token: token.refresh_token,
-        expires_at: token.expires_at,
-        token_type: token.token_type,
+      JSON.encode!(%{
+        access_token: token.access_token(),
+        refresh_token: token.refresh_token(),
+        expires_at: token.expires_at(),
+        token_type: token.token_type(),
         http_url: token[:http_url]
       })
 
@@ -1016,7 +1016,7 @@ defmodule Longbridge.OAuthTest do
   end
 
   defp oauth_json_response(status, body) do
-    encoded = Jason.encode!(body)
+    encoded = JSON.encode!(body)
     status_text = if status == 200, do: "OK", else: "Bad Request"
 
     "HTTP/1.1 #{status} #{status_text}\r\n" <>

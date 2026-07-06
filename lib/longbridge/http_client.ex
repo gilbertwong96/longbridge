@@ -238,7 +238,7 @@ defmodule Longbridge.HTTPClient do
 
     case Finch.request(request, finch, receive_timeout: 15_000) do
       {:ok, %Finch.Response{status: status, body: resp_body}} when status in 200..299 ->
-        case Jason.decode(resp_body) do
+        case JSON.decode(resp_body) do
           {:ok, parsed} -> {:ok, parsed}
           {:error, _} -> {:ok, resp_body}
         end

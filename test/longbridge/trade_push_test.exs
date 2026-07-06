@@ -13,7 +13,7 @@ defmodule Longbridge.TradePushTest do
   describe "TradeContext push event handling" do
     test "end-to-end: callback receives the decoded event" do
       event_json =
-        Jason.encode!(%{
+        JSON.encode!(%{
           "order_id" => "99999",
           "symbol" => "AAPL.US",
           "status" => "PartiallyFilled",

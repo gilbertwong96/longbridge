@@ -22,7 +22,7 @@ defmodule Longbridge.OAuth.TokenStorage do
 
         @impl true
         def save(client_id, token) do
-          json = Jason.encode!(token)
+          json = JSON.encode!(token)
           Redix.command(:redix, ["SET", "oauth:token:\#{client_id}", json])
           :ok
         end

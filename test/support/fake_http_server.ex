@@ -182,7 +182,7 @@ defmodule Longbridge.TestSupport.FakeHTTPServer do
   end
 
   def json(conn, status, data) when is_map(data) do
-    json(conn, status, Jason.encode!(data))
+    json(conn, status, JSON.encode!(data))
   end
 
   @doc """

@@ -17,7 +17,7 @@ defmodule Longbridge.OAuth.FileTokenStorage do
     path = token_path(client_id)
 
     with {:ok, content} <- File.read(path),
-         {:ok, %{"access_token" => token} = data} <- Jason.decode(content) do
+         {:ok, %{"access_token" => token} = data} <- JSON.decode(content) do
       {:ok,
        %{
          access_token: token,
@@ -47,7 +47,7 @@ defmodule Longbridge.OAuth.FileTokenStorage do
     :ok = File.chmod!(dir, 0o700)
 
     json =
-      Jason.encode!(%{
+      JSON.encode!(%{
         access_token: Map.get(token, :access_token),
         refresh_token: Map.get(token, :refresh_token),
         expires_at: Map.get(token, :expires_at),

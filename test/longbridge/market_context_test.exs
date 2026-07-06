@@ -26,7 +26,7 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/quote/market-status"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.market_session(config_with(server.port))
@@ -43,7 +43,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "counter_id=ST/HK/700"
           assert parsed.path_with_query =~ "type=rct_5"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -61,7 +61,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "/v1/quote/changes"
           assert parsed.path_with_query =~ "market=HK"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.anomaly_alerts(config_with(server.port), "HK")
@@ -77,7 +77,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "/v1/quote/index-constituents"
           assert parsed.path_with_query =~ "counter_id=HSI"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.index_constituents(config_with(server.port), "HSI")
@@ -93,7 +93,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "/v1/quote/trades-statistics"
           assert parsed.path_with_query =~ "counter_id=ST/US/AAPL"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.trade_status(config_with(server.port), "AAPL.US")
@@ -110,7 +110,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "line_type=day"
           assert parsed.path_with_query =~ "line_num=100"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -128,7 +128,7 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "line_type=custom"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -141,7 +141,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "line_type=week"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -154,7 +154,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "line_type=month"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -167,7 +167,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "line_type=quarter"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -180,7 +180,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "line_type=year"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -195,7 +195,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "type=rct_1"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -208,7 +208,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "type=rct_20"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -221,7 +221,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "type=rct_60"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -234,7 +234,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "type=custom"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -260,12 +260,12 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/quote/market/stock-events"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["sort"] == 0
           assert decoded["limit"] == 20
           assert decoded["markets"] == []
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.top_movers(config_with(server.port), sort: :hot)
@@ -276,10 +276,10 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["sort"] == 1
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.top_movers(config_with(server.port), sort: :time)
@@ -290,10 +290,10 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["sort"] == 2
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.top_movers(config_with(server.port), sort: :change)
@@ -304,10 +304,10 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["markets"] == ["HK", "US"]
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -324,7 +324,7 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/quote/market/rank/categories"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"list" => []}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"list" => []}}))
         end)
 
       assert {:ok, []} = MarketContext.rank_categories(config_with(server.port))
@@ -334,7 +334,7 @@ defmodule Longbridge.MarketContextTest do
     test "accepts a flat list response" do
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, []} = MarketContext.rank_categories(config_with(server.port))
@@ -351,7 +351,7 @@ defmodule Longbridge.MarketContextTest do
           assert parsed.path_with_query =~ "key=ib_active"
           assert parsed.path_with_query =~ "need_article=false"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.rank_list(config_with(server.port), "active")
@@ -364,7 +364,7 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "key=ib_already_prefixed"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = MarketContext.rank_list(config_with(server.port), "ib_already_prefixed")
@@ -376,7 +376,7 @@ defmodule Longbridge.MarketContextTest do
     test "all methods propagate API errors" do
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(%{code: 403, message: "forbidden", data: nil}))
+          ok(conn, JSON.encode!(%{code: 403, message: "forbidden", data: nil}))
         end)
 
       assert {:error, {:api_error, 403, "forbidden"}} =
@@ -415,7 +415,7 @@ defmodule Longbridge.MarketContextTest do
       server =
         start_fake_http_server(fn conn ->
           assert parse_conn(conn).path_with_query =~ "/v1/quote/market-status"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       config =
@@ -435,10 +435,10 @@ defmodule Longbridge.MarketContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/quote/market/stock-events"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["sort"] == 1
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       config =

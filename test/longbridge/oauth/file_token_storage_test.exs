@@ -51,7 +51,7 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
       assert File.exists?(path)
 
       json = File.read!(path)
-      assert {:ok, %{"access_token" => "t"}} = Jason.decode(json)
+      assert {:ok, %{"access_token" => "t"}} = JSON.decode(json)
     end
 
     test "creates the parent directory if missing" do
@@ -112,14 +112,16 @@ defmodule Longbridge.OAuth.FileTokenStorageTest do
       assert {:error, :not_found} = FileTokenStorage.load(client_id)
     end
 
-    test "returns the Jason.DecodeError for malformed JSON" do
+    test "returns a decode error for malformed JSON" do
       client_id = unique_client_id("bad-json")
       path = FileTokenStorage.token_path(client_id)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, "not json")
       on_exit(fn -> cleanup(client_id) end)
 
-      assert {:error, %Jason.DecodeError{}} = FileTokenStorage.load(client_id)
+      # JSON.decode/1 returns {:error, {:invalid_byte, pos, byte}}
+      # for malformed input (not a raised struct).
+      assert {:error, {:invalid_byte, _, _}} = FileTokenStorage.load(client_id)
     end
 
     test "returns :invalid_token_data when access_token is missing" do

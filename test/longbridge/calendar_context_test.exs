@@ -33,7 +33,7 @@ defmodule Longbridge.CalendarContextTest do
           assert parsed.path_with_query =~ "date=2024-05-01"
           assert parsed.path_with_query =~ "date_end=2024-05-31"
 
-          payload = Jason.encode!(%{code: 0, data: []})
+          payload = JSON.encode!(%{code: 0, data: []})
           ok(conn, payload)
         end)
 
@@ -49,7 +49,7 @@ defmodule Longbridge.CalendarContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "markets=HK"
 
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -67,7 +67,7 @@ defmodule Longbridge.CalendarContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=dividend"
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -87,7 +87,7 @@ defmodule Longbridge.CalendarContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=split"
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -103,7 +103,7 @@ defmodule Longbridge.CalendarContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=ipo"
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -119,7 +119,7 @@ defmodule Longbridge.CalendarContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "types=macrodata"
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -139,7 +139,7 @@ defmodule Longbridge.CalendarContextTest do
           assert parsed.path_with_query =~ "date=#{today}"
           assert parsed.path_with_query =~ "date_end=#{today}"
 
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} = CalendarContext.market_closures(config_with(server.port))
@@ -151,7 +151,7 @@ defmodule Longbridge.CalendarContextTest do
         start_fake_http_server(fn conn ->
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "markets=US"
-          ok(conn, Jason.encode!(%{code: 0, data: []}))
+          ok(conn, JSON.encode!(%{code: 0, data: []}))
         end)
 
       assert {:ok, _} =
@@ -163,7 +163,7 @@ defmodule Longbridge.CalendarContextTest do
     test "propagates API errors" do
       server =
         start_fake_http_server(fn conn ->
-          payload = Jason.encode!(%{code: 403, message: "forbidden", data: nil})
+          payload = JSON.encode!(%{code: 403, message: "forbidden", data: nil})
           ok(conn, payload)
         end)
 

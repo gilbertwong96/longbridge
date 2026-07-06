@@ -115,7 +115,7 @@ defmodule Longbridge.Symbol do
   end
 
   defp remote_lookup(%Config{} = config, symbols) do
-    body = Jason.encode!(%{ticker_regions: symbols})
+    body = JSON.encode!(%{ticker_regions: symbols})
 
     case HTTPClient.request_json(:post, @remote_batch_path, body, config) do
       {:ok, %{"list" => list}} when is_map(list) -> {:ok, list}

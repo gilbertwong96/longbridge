@@ -138,7 +138,7 @@ defmodule Longbridge.SymbolTest do
           assert parsed.body =~ "ticker_regions"
 
           body =
-            Jason.encode!(%{"code" => 0, "data" => %{"list" => %{"DRAM.US" => "ETF/US/DRAM"}}})
+            JSON.encode!(%{"code" => 0, "data" => %{"list" => %{"DRAM.US" => "ETF/US/DRAM"}}})
 
           ok(conn, body)
         end)
@@ -154,7 +154,7 @@ defmodule Longbridge.SymbolTest do
       # entry for it. Falls back to ST/XX/BOGUS.
       server =
         start_fake_http_server(fn conn ->
-          body = Jason.encode!(%{"code" => 0, "data" => %{"list" => %{}}})
+          body = JSON.encode!(%{"code" => 0, "data" => %{"list" => %{}}})
           ok(conn, body)
         end)
 

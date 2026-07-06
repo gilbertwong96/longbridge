@@ -174,7 +174,7 @@ defmodule Longbridge.QuoteHTTPContext do
   @spec create_watchlist_group(Config.t(), String.t(), [String.t()], keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def create_watchlist_group(%Config{} = config, name, securities, opts \\ []) do
-    body = Jason.encode!(%{name: name, securities: securities})
+    body = JSON.encode!(%{name: name, securities: securities})
 
     case HTTPClient.request_json(:post, @watchlist_groups_path, body, config, opts) do
       {:ok, %{"id" => id}} when is_binary(id) -> {:ok, id}
@@ -199,7 +199,7 @@ defmodule Longbridge.QuoteHTTPContext do
           :ok | {:error, term()}
   def delete_watchlist_group(%Config{} = config, group_id, purge \\ false, opts \\ [])
       when is_boolean(purge) do
-    body = Jason.encode!(%{id: group_id, purge: purge})
+    body = JSON.encode!(%{id: group_id, purge: purge})
 
     case HTTPClient.request_json(:delete, @watchlist_groups_path, body, config, opts) do
       {:ok, _} -> :ok
@@ -228,7 +228,7 @@ defmodule Longbridge.QuoteHTTPContext do
           :ok | {:error, term()}
   def update_watchlist_group(%Config{} = config, group_id, name, securities, mode, opts \\ []) do
     body =
-      Jason.encode!(%{
+      JSON.encode!(%{
         id: group_id,
         name: name,
         securities: securities,
@@ -340,7 +340,7 @@ defmodule Longbridge.QuoteHTTPContext do
           :ok | {:error, term()}
   def update_pinned(%Config{} = config, group_id, symbol, is_pinned, opts \\ [])
       when is_boolean(is_pinned) do
-    body = Jason.encode!(%{group_id: group_id, symbol: symbol, is_pinned: is_pinned})
+    body = JSON.encode!(%{group_id: group_id, symbol: symbol, is_pinned: is_pinned})
 
     case HTTPClient.request_json(:post, @watchlist_pinned_path, body, config, opts) do
       {:ok, _response} -> :ok
@@ -405,7 +405,7 @@ defmodule Longbridge.QuoteHTTPContext do
   @spec symbol_to_counter_ids(Config.t(), [String.t()], keyword()) ::
           {:ok, %{String.t() => String.t()}} | {:error, term()}
   def symbol_to_counter_ids(%Config{} = config, symbols, opts \\ []) when is_list(symbols) do
-    body = Jason.encode!(%{ticker_regions: symbols})
+    body = JSON.encode!(%{ticker_regions: symbols})
 
     case HTTPClient.request_json(:post, @symbol_to_counter_ids_path, body, config, opts) do
       {:ok, %{"list" => list}} when is_map(list) -> {:ok, list}

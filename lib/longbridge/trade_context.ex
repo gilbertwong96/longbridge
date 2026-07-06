@@ -176,7 +176,7 @@ defmodule Longbridge.TradeContext do
   """
   @spec submit_order(pid(), keyword()) :: {:ok, map()} | {:error, term()}
   def submit_order(pid, opts) do
-    body = Jason.encode!(transform_keys(Map.new(opts)))
+    body = JSON.encode!(transform_keys(Map.new(opts)))
     http_post(pid, "/v1/trade/order", body)
   end
 
@@ -191,7 +191,7 @@ defmodule Longbridge.TradeContext do
   """
   @spec replace_order(pid(), keyword()) :: {:ok, map()} | {:error, term()}
   def replace_order(pid, opts) do
-    body = Jason.encode!(transform_keys(Map.new(opts)))
+    body = JSON.encode!(transform_keys(Map.new(opts)))
     http_put(pid, "/v1/trade/order", body)
   end
 
@@ -758,7 +758,7 @@ defmodule Longbridge.TradeContext do
     notif = Protox.decode!(body, Longbridge.Trade.V1.Notification)
 
     if notif.topic != "" and notif.content_type == :CONTENT_JSON and notif.data != "" do
-      case Jason.decode(notif.data) do
+      case JSON.decode(notif.data) do
         {:ok, event} ->
           if callback = Map.get(callbacks, notif.topic) do
             callback.(event)
@@ -775,7 +775,7 @@ defmodule Longbridge.TradeContext do
   defp dispatch_push({:push, _cmd_code, _body}, _callbacks, nil), do: :ok
 
   defp dispatch_push({:push, _cmd_code, body}, _callbacks, default_callback) do
-    case Jason.decode(body) do
+    case JSON.decode(body) do
       {:ok, event} -> default_callback.(event)
       _ -> :ok
     end

@@ -197,7 +197,7 @@ defmodule Longbridge.HTTPClientTest do
 
           if actual_sig == expected_x_api_signature do
             response_body =
-              Jason.encode!(%{
+              JSON.encode!(%{
                 code: 0,
                 message: "success",
                 data: %{token: new_token, expired_at: expired_at}

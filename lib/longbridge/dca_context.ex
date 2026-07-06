@@ -54,10 +54,7 @@ defmodule Longbridge.DCAContext do
           {:ok, map()} | {:error, term()}
   def create_plan(%Config{} = config, opts, http_opts \\ []) do
     body =
-      opts
-      |> Map.new()
-      |> Map.put_new(:allow_margin, false)
-      |> Jason.encode!()
+      JSON.encode!(Map.put_new(Map.new(opts), :allow_margin, false))
 
     HTTPClient.request_json(:post, @create_path, body, config, http_opts)
   end
@@ -101,7 +98,7 @@ defmodule Longbridge.DCAContext do
   @spec update_plan(Config.t(), keyword(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def update_plan(%Config{} = config, opts, http_opts \\ []) do
-    body = Jason.encode!(Map.new(opts))
+    body = JSON.encode!(Map.new(opts))
     HTTPClient.request_json(:post, @update_path, body, config, http_opts)
   end
 
@@ -156,7 +153,7 @@ defmodule Longbridge.DCAContext do
   # ── Helpers ──────────────────────────────────────────────
 
   defp toggle(config, plan_id, status, http_opts) do
-    body = Jason.encode!(%{plan_id: plan_id, status: status})
+    body = JSON.encode!(%{plan_id: plan_id, status: status})
     HTTPClient.request_json(:post, @toggle_path, body, config, http_opts)
   end
 

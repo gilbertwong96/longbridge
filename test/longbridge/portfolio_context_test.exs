@@ -31,7 +31,7 @@ defmodule Longbridge.PortfolioContextTest do
           assert parsed.path_with_query =~ "/v1/asset/exchange_rates"
           refute parsed.path_with_query =~ "base_currency"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.exchange_rates(config_with(server.port))
@@ -44,7 +44,7 @@ defmodule Longbridge.PortfolioContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "base_currency=USD"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.exchange_rates(config_with(server.port), "USD")
@@ -60,7 +60,7 @@ defmodule Longbridge.PortfolioContextTest do
           assert parsed.path_with_query =~ "/v1/portfolio/profit-analysis/by-market"
           assert parsed.path_with_query =~ "market=HK"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = PortfolioContext.portfolio_pl(config_with(server.port), market: "HK")
@@ -75,7 +75,7 @@ defmodule Longbridge.PortfolioContextTest do
           refute parsed.path_with_query =~ "finch"
           refute parsed.path_with_query =~ "http_url"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -97,7 +97,7 @@ defmodule Longbridge.PortfolioContextTest do
           assert parsed.path_with_query =~ "start_date=2024-05-01"
           assert parsed.path_with_query =~ "end_date=2024-05-31"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -114,7 +114,7 @@ defmodule Longbridge.PortfolioContextTest do
     test "all methods propagate API errors" do
       server =
         start_fake_http_server(fn conn ->
-          payload = Jason.encode!(%{code: 403, message: "forbidden", data: nil})
+          payload = JSON.encode!(%{code: 403, message: "forbidden", data: nil})
           ok(conn, payload)
         end)
 

@@ -93,7 +93,7 @@ defmodule Longbridge.AlertContextTest do
           assert method == "POST"
           assert path == "/v1/notify/reminders"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           # All fields are forwarded, with `enabled` toggled.
           assert decoded["id"] == "alert-1"
           assert decoded["indicator_id"] == "5"
@@ -105,7 +105,7 @@ defmodule Longbridge.AlertContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -129,7 +129,7 @@ defmodule Longbridge.AlertContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -147,12 +147,12 @@ defmodule Longbridge.AlertContextTest do
           assert method == "DELETE"
           assert path == "/v1/notify/reminders"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded == %{"ids" => ["alert-1"]}
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -166,7 +166,7 @@ defmodule Longbridge.AlertContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -184,14 +184,14 @@ defmodule Longbridge.AlertContextTest do
           {method, _path, body} = parse_request(request)
           assert method == "POST"
 
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["symbol"] == "AAPL.US"
           assert decoded["price"] == "150.00"
           assert decoded["direction"] == "above"
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"id" => "alert-1"}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"id" => "alert-1"}}))
           )
         end)
 
@@ -213,15 +213,9 @@ defmodule Longbridge.AlertContextTest do
           assert request =~ "GET /v1/notify/reminders"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               "code" => 0,
-              "data" => [
-                %{
-                  "id" => "alert-1",
-                  "scope" => "AAPL.US",
-                  "enabled" => true
-                }
-              ]
+              "data" => [%{"id" => "alert-1", "scope" => "AAPL.US", "enabled" => true}]
             })
 
           :gen_tcp.send(socket, http_ok(payload))
@@ -243,11 +237,11 @@ defmodule Longbridge.AlertContextTest do
           {method, path, body} = parse_request(request)
           assert method == "POST"
           assert path == "/v1/notify/reminders"
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["alert_id"] == "alert-1"
           assert decoded["enable"] == true
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert {:ok, _} = AlertContext.enable_alert(config_with(server.port), "alert-1")
@@ -262,11 +256,11 @@ defmodule Longbridge.AlertContextTest do
           {method, path, body} = parse_request(request)
           assert method == "POST"
           assert path == "/v1/notify/reminders"
-          decoded = Jason.decode!(body)
+          decoded = JSON.decode!(body)
           assert decoded["alert_id"] == "alert-2"
           assert decoded["enable"] == false
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert {:ok, _} = AlertContext.disable_alert(config_with(server.port), "alert-2")
@@ -279,7 +273,7 @@ defmodule Longbridge.AlertContextTest do
       server =
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/notify/reminders"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => []})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => []})))
         end)
 
       config =

@@ -26,11 +26,11 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/sharelists"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["name"] == "My List"
           assert decoded["symbols"] == ["AAPL.US", "NVDA.US"]
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{"id" => "1"}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{"id" => "1"}}))
         end)
 
       assert {:ok, _} =
@@ -52,7 +52,7 @@ defmodule Longbridge.SharelistContextTest do
           assert parsed.path_with_query =~ "/v1/sharelists"
           assert parsed.path_with_query =~ "count=20"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = SharelistContext.list(config_with(server.port), count: 20)
@@ -67,7 +67,7 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/sharelists/popular"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = SharelistContext.popular(config_with(server.port))
@@ -83,7 +83,7 @@ defmodule Longbridge.SharelistContextTest do
           assert parsed.method == "GET"
           assert parsed.path_with_query == "/v1/sharelists/abc-123"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = SharelistContext.detail(config_with(server.port), "abc-123")
@@ -98,10 +98,10 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/sharelists/abc-123"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["name"] == "New Name"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = SharelistContext.rename(config_with(server.port), "abc-123", "New Name")
@@ -116,10 +116,10 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "POST"
           assert parsed.path_with_query == "/v1/sharelists/abc-123/items"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["symbols"] == ["AAPL.US", "NVDA.US"]
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -139,10 +139,10 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "DELETE"
           assert parsed.path_with_query == "/v1/sharelists/abc-123/items"
-          decoded = Jason.decode!(parsed.body)
+          decoded = JSON.decode!(parsed.body)
           assert decoded["symbols"] == ["AAPL.US"]
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} =
@@ -160,7 +160,7 @@ defmodule Longbridge.SharelistContextTest do
           assert parsed.method == "DELETE"
           assert parsed.path_with_query == "/v1/sharelists/abc-123"
 
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       assert {:ok, _} = SharelistContext.delete(config_with(server.port), "abc-123")
@@ -172,7 +172,7 @@ defmodule Longbridge.SharelistContextTest do
     test "all methods propagate API errors" do
       server =
         start_fake_http_server(fn conn ->
-          ok(conn, Jason.encode!(%{code: 403, message: "forbidden", data: nil}))
+          ok(conn, JSON.encode!(%{code: 403, message: "forbidden", data: nil}))
         end)
 
       assert {:error, {:api_error, 403, "forbidden"}} =
@@ -195,7 +195,7 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.method == "GET"
           assert parsed.path_with_query == "/v1/sharelists/abc-123"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       config =
@@ -215,7 +215,7 @@ defmodule Longbridge.SharelistContextTest do
           parsed = parse_conn(conn)
           assert parsed.path_with_query =~ "/v1/sharelists"
           assert parsed.path_with_query =~ "count=20"
-          ok(conn, Jason.encode!(%{code: 0, data: %{}}))
+          ok(conn, JSON.encode!(%{code: 0, data: %{}}))
         end)
 
       config =

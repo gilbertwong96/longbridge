@@ -27,7 +27,7 @@ defmodule Longbridge.HTTPClientHeadersTest do
           assert_req_header(conn, "x-forwarded-for", "1.2.3.4")
           assert_req_header(conn, "x-tenant", "acme")
 
-          ok(conn, Jason.encode!(%{"code" => 0, "data" => %{}}))
+          ok(conn, JSON.encode!(%{"code" => 0, "data" => %{}}))
         end)
 
       config =
@@ -50,7 +50,7 @@ defmodule Longbridge.HTTPClientHeadersTest do
           refute_req_header(conn, "x-forwarded-for")
           refute_req_header(conn, "x-tenant")
 
-          ok(conn, Jason.encode!(%{"code" => 0, "data" => %{}}))
+          ok(conn, JSON.encode!(%{"code" => 0, "data" => %{}}))
         end)
 
       config =

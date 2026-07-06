@@ -105,7 +105,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "/v1/quote/etf-asset-allocation"
           assert request =~ "counter_id=ETF/US/SPY"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -120,7 +120,7 @@ defmodule Longbridge.FundamentalContextTest do
         start_fake_http_server(fn request, socket ->
           assert request =~ "counter_id=ST/US/AAPL"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => %{"info" => []}})
+          payload = JSON.encode!(%{"code" => 0, "data" => %{"info" => []}})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -153,7 +153,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/filings"
           assert request =~ "symbol=AAPL.US"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -178,7 +178,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"items" => []}}))
           )
         end)
 
@@ -193,7 +193,7 @@ defmodule Longbridge.FundamentalContextTest do
         start_fake_http_server(fn _request, socket ->
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"items" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"items" => []}}))
           )
         end)
 
@@ -228,7 +228,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "market=US"
           assert request =~ "/v2/quote/macrodata"
 
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -247,7 +247,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -266,7 +266,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -288,7 +288,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -314,7 +314,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -347,7 +347,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "currency=USD"
 
           payload =
-            Jason.encode!(%{
+            JSON.encode!(%{
               "code" => 0,
               "data" => %{
                 "list" => [
@@ -385,7 +385,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -407,7 +407,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"list" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"list" => []}}))
           )
         end)
 
@@ -429,7 +429,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v2/quote/macrodata/CPI_YOY "
 
           payload =
-            Jason.encode!(%{"code" => 0, "data" => %{"info" => %{}, "data" => []}})
+            JSON.encode!(%{"code" => 0, "data" => %{"info" => %{}, "data" => []}})
 
           :gen_tcp.send(socket, http_ok(payload))
         end)
@@ -450,7 +450,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{"data" => []}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{"data" => []}}))
           )
         end)
 
@@ -474,7 +474,7 @@ defmodule Longbridge.FundamentalContextTest do
 
           :gen_tcp.send(
             socket,
-            http_ok(Jason.encode!(%{"code" => 0, "data" => %{}}))
+            http_ok(JSON.encode!(%{"code" => 0, "data" => %{}}))
           )
         end)
 
@@ -509,7 +509,7 @@ defmodule Longbridge.FundamentalContextTest do
 
       server =
         start_fake_http_server(fn _request, socket ->
-          payload = Jason.encode!(%{"code" => 0, "data" => response})
+          payload = JSON.encode!(%{"code" => 0, "data" => response})
           :gen_tcp.send(socket, http_ok(payload))
         end)
 
@@ -532,7 +532,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/comp-overview"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} =
@@ -553,7 +553,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/dividends"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} = FundamentalContext.dividends(config_with(server.port), "AAPL.US")
@@ -570,7 +570,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/valuation"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} = FundamentalContext.valuation(config_with(server.port), "AAPL.US")
@@ -587,7 +587,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/shareholders"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} =
@@ -606,7 +606,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/institution-rating-latest"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} =
@@ -625,7 +625,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/financial-reports"
           assert request =~ "symbol=AAPL.US"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => response})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => response})))
         end)
 
       assert {:ok, ^response} =
@@ -641,7 +641,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "symbol=AAPL.US"
           assert request =~ "rpt_type=income_statement"
 
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       assert {:ok, _} =
@@ -659,7 +659,7 @@ defmodule Longbridge.FundamentalContextTest do
         start_fake_http_server(fn request, socket ->
           assert request =~ "GET /v1/quote/comp-overview"
           assert request =~ "symbol=AAPL.US"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       config =
@@ -684,7 +684,7 @@ defmodule Longbridge.FundamentalContextTest do
           assert request =~ "GET /v1/quote/financial-reports"
           assert request =~ "symbol=AAPL.US"
           assert request =~ "rpt_type=income_statement"
-          :gen_tcp.send(socket, http_ok(Jason.encode!(%{"code" => 0, "data" => %{}})))
+          :gen_tcp.send(socket, http_ok(JSON.encode!(%{"code" => 0, "data" => %{}})))
         end)
 
       config =
