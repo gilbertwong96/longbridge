@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1]
+
+### Changed
+
+- **Dropped the `jason` dependency** in favor of the built-in `JSON` module
+  (Elixir 1.20+). All encode/decode call sites in `lib/` and `test/` now use
+  `JSON.encode!/1` / `JSON.decode/1`. `jason` remains only as a transitive
+  dependency of `req` and `ex_doc`.
+- **Removed the redundant License section** from the README; the MIT LICENSE
+  file now ships with the package and is linked via the badge.
+
 ## [0.1.0] — Initial beta release
 
 Initial public beta. The SDK implements the Longbridge OpenAPI binary protocol
@@ -95,5 +106,6 @@ The SDK is feature-complete against the upstream protocol for the pinned
 - `Longbridge.TradeContext`: 95.9%.
 - `Longbridge.QuoteContext.RealtimeStore`: 100%.
 
-[Unreleased]: https://github.com/gilbertwong96/longbridge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/gilbertwong96/longbridge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/gilbertwong96/longbridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gilbertwong96/longbridge/releases/tag/v0.1.0
