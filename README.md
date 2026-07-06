@@ -640,7 +640,3 @@ cp deps/openapi_protobuf_specs/trade/*.proto   protos/
 ```
 
 Don't hand-edit files under `protos/` — the next sync will clobber your changes.
-
-## License
-
-TBD. See the LICENSE file once one is added.
