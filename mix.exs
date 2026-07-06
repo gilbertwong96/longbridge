@@ -144,7 +144,6 @@ defmodule Longbridge.MixProject do
       licenses: ["MIT"],
       links: %{
         "GitHub" => "https://github.com/gilbertwong96/longbridge",
-        "Upstream" => "https://github.com/longbridge/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
       files: ~w[lib protos .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
