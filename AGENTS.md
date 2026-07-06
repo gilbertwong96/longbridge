@@ -26,7 +26,7 @@ Operating instructions for AI coding agents working on the **longbridge** Elixir
 | `Longbridge.PortfolioContext` | Exchange rates and portfolio P&L analysis. HTTP-only. |
 | `Longbridge.Protocol` | Wire-format constants + `pack/2` / `unpack/1` for whole packets. |
 | `Longbridge.Protocol.Header` | Per-packet header encode/decode (request / response / push layouts). |
-| `Longbridge.Protos` | `use Protox, files: protos/*.proto` — generates `Longbridge.{Control,Quote,Trade}.V1.*` structs. |
+| `Longbridge.Protos` | Pre-generated protobuf modules (`lib/longbridge/_protos.ex`) for `Longbridge.{Control,Quote,Trade}.V1.*` structs. Regenerate with `mix gen_protos` (requires `protoc`, dev-only). |
 | `Longbridge.QuoteContext` | Public API for the quote endpoint — 20+ typed methods. |
 | `Longbridge.SharelistContext` | Community sharelist management. HTTP-only. |
 | `Longbridge.ScreenerContext` | Stock-screener strategies, indicator search, AI recommendations. HTTP-only. Mirrors `ScreenerContext` in `longbridge/openapi-go` and `longbridge/openapi`. |
@@ -61,7 +61,7 @@ mix format              # auto-format
 mix docs                # generate ExDoc HTML
 ```
 
-`protoc` must be on `$PATH` (Elixir `protox` shells out to it). On macOS: `brew install protobuf`.
+`protoc` is **only** required when regenerating protobuf modules (`mix gen_protos`), not for normal `mix compile`/`mix test`. On macOS: `brew install protobuf`. The generated modules ship pre-compiled in `lib/longbridge/_protos.ex`; downstream consumers never need `protoc`.
 
 ## Architecture invariants
 
@@ -83,7 +83,7 @@ mix docs                # generate ExDoc HTML
 - **No `IO.puts` / `IO.inspect` in library code.** Use `Logger` (the connection module already requires it). This includes temporary debugging — use `Logger.debug` and remove before committing.
 - **Specs for public functions.** `@spec` for every public function. Prefer concrete types (`non_neg_integer()`, `:atom | binary()`) over generic ones (`term()`, `any()`).
 - **Match on the struct shape, not just the variable.** When a function expects a `Header.t()`, pattern-match `def f(%Header{} = h, ...)` so Dialyzer can prove the type and you get a clear error if a caller passes the wrong shape.
-- **One `use Protox` only.** The `use Protox, files: [...], paths: [...]` macro call lives **exclusively** in `lib/longbridge/_protos.ex`. The macro generates `Longbridge.{Control,Quote,Trade}.V1.*` modules and the file's name (and `defmodule Longbridge.Protos`) are load-bearing for the generated module names — renaming either one will require updating the `Q.`, `T.`, and `Ctrl.` aliases in `quote_context.ex`, `trade_context.ex`, and `connection.ex`.
+- **Protobuf modules are pre-generated.** `lib/longbridge/_protos.ex` contains the pre-compiled output of `mix protox.generate` (run via the `mix gen_protos` alias). It generates `Longbridge.{Control,Quote,Trade}.V1.*` modules. Do **not** switch back to `use Protox, files: [...]` — that would reintroduce the `protoc` build-time dependency for downstream consumers. The file's name and `defmodule Longbridge.Protos` are load-bearing for the generated module names — renaming either one will require updating the `Q.`, `T.`, and `Ctrl.` aliases in `quote_context.ex`, `trade_context.ex`, and `connection.ex`. To regenerate after a `.proto` change: `mix gen_protos` (requires `protoc`).
 
 ## Tests
 

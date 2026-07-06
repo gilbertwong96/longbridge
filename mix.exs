@@ -101,6 +101,11 @@ defmodule Longbridge.MixProject do
         "ex_dna",
         "reach.check --dead-code --smells",
         "test --cover"
+      ],
+      # Regenerate the pre-compiled protobuf modules in lib/longbridge/_protos.ex
+      # from protos/*.proto. Requires `protoc` on $PATH (dev-only).
+      gen_protos: [
+        "protox.generate --output-path=lib/longbridge/_protos.ex --include-path=protos protos/control.proto protos/error.proto protos/api.proto protos/subscribe.proto"
       ]
     ]
   end
@@ -142,7 +147,7 @@ defmodule Longbridge.MixProject do
         "Upstream" => "https://github.com/longbridge/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
-      files: ~w[lib protos .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
+      files: ~w[lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
     ]
   end
 end

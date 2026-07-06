@@ -24,12 +24,6 @@ def deps do
 end
 ```
 
-`protoc` is a build-time dependency of `protox` (one of the transitive deps). On macOS:
-
-```sh
-brew install protobuf
-```
-
 ## Quick start
 
 ```elixir
@@ -636,7 +630,11 @@ The four `.proto` files under `protos/` are vendored from [`longbridge/openapi-p
 cp deps/openapi_protobuf_specs/control/*.proto protos/
 cp deps/openapi_protobuf_specs/quote/*.proto   protos/
 cp deps/openapi_protobuf_specs/trade/*.proto   protos/
-# 4. mix compile && mix test
+# 4. regenerate the pre-compiled modules (requires protoc)
+mix gen_protos
+# 5. mix compile && mix test
 ```
+
+The protobuf Elixir modules are **pre-generated** into `lib/longbridge/_protos.ex` (via `mix protox.generate`), so downstream consumers do **not** need `protoc` installed. `protoc` is only required for maintainers regenerating the modules after a proto change. Run `mix gen_protos` to regenerate.
 
 Don't hand-edit files under `protos/` — the next sync will clobber your changes.

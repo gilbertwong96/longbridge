@@ -9,12 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Pre-generated protobuf modules** — `lib/longbridge/_protos.ex` now ships
+  the compiled output of `mix protox.generate` instead of using `use Protox,
+  files: [...]`. **Downstream consumers no longer need `protoc` installed** to
+  compile the SDK. `protoc` is only required for maintainers regenerating the
+  modules after a `.proto` change (run `mix gen_protos`). The `protos/` source
+  files are no longer included in the Hex package.
 - **Dropped the `jason` dependency** in favor of the built-in `JSON` module
   (Elixir 1.20+). All encode/decode call sites in `lib/` and `test/` now use
   `JSON.encode!/1` / `JSON.decode/1`. `jason` remains only as a transitive
   dependency of `req` and `ex_doc`.
 - **Removed the redundant License section** from the README; the MIT LICENSE
   file now ships with the package and is linked via the badge.
+- **Removed the `protoc` build-time requirement** from the README installation
+  instructions (no longer needed thanks to pre-generated modules).
 
 ## [0.1.0] — Initial beta release
 
