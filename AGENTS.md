@@ -91,6 +91,10 @@ Tests live in `test/longbridge_test.exs` and cover: `Config` defaults, `Protocol
 
 There are **no integration tests** — the SDK is exercised against a real Longbridge account by hand. Don't add a `mix test --include integration` or fake server until the user asks for one; the protocol is brittle enough that a mock server would diverge from production and the tests would lie.
 
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with one project-specific rule: **never add an `[Unreleased]` section.** Every change is written directly under a numbered release entry. The next version number is decided when the change is made, not batched under a holding section — this keeps the changelog a faithful release log and avoids the stale-`[Unreleased]` drift that happens when a holding section accumulates changes across many PRs without a release.
+
 ## Things to avoid
 
 - **Don't bump `protox`, `credo`, `dialyxir`, or `reach` past the version pinned in `mix.exs`** without checking their changelogs — this repo's `dialyzer:` flags, `credo:` plugins, and `.ex_dna.exs` / `.reach.exs` configs are tuned to the current versions.
