@@ -94,17 +94,20 @@ jobs:
         timeout-minutes: 15
 
       - name: Run tests with coverage
-        # mix.exs sets test_coverage: [tool: ExCoveralls, ...], so
-        # `mix coveralls.json` runs the test suite under coverage
-        # and writes the coveralls.io-format JSON to
-        # cover/excoveralls.json. The strict threshold check (80%)
-        # from mix.exs is enforced here too — the build fails if
-        # total coverage drops below 80%.
+        # `mix coveralls.json` runs the test suite under coverage and
+        # writes the coveralls.io-format JSON to cover/excoveralls.json,
+        # which the codecov uploader consumes. We use `mix coveralls.json`
+        # (not `mix test --cover`) because only the former produces the
+        # cover/excoveralls.json file. `mix test --cover` only writes the
+        # per-module HTML to cover/.
         #
-        # We use `mix coveralls.json` (not `mix test --cover`)
-        # because only the former produces the cover/excoveralls.json
-        # file the codecov uploader needs. `mix test --cover` only
-        # writes the per-module HTML to cover/.
+        # The generated protobuf module (lib/longbridge/_protos.ex) is
+        # excluded from coverage by `skip_files` in coveralls.json — its
+        # 5,900+ lines would otherwise drag total coverage into the 30s.
+        # The 80% target is enforced by codecov.yml's status check, not
+        # locally (excoveralls' `coveralls.json` task doesn't call
+        # `ensure_minimum_coverage/1`; only the local `mix coveralls`,
+        # `coveralls.html`, and `coveralls.cobertura` tasks do).
         run: mix coveralls.json
 
       - name: Post coverage to Codecov
