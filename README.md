@@ -19,7 +19,7 @@ Add `longbridge` to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:longbridge, "~> 0.1.0"}
+    {:longbridge, "~> 0.1.2"}
   ]
 end
 ```
@@ -67,8 +67,8 @@ end
     submitted_price: "150.00"
   )
 
-# Cancel an order
-:ok = Longbridge.TradeContext.cancel_order(trade_ctx, order_id)
+# Cancel an order (returns {:ok, %{}} on success)
+{:ok, _} = Longbridge.TradeContext.cancel_order(trade_ctx, order_id)
 
 # Today's orders
 {:ok, %{"orders" => orders}} = Longbridge.TradeContext.today_orders(trade_ctx)
