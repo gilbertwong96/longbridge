@@ -404,6 +404,102 @@ defmodule Longbridge.QuoteContext do
   end
 
   @doc """
+  Fetches a large number of candlesticks by paginating across multiple
+  `candlesticks/6` calls.
+
+  The single-request API caps at 1000 candles per call. This function
+  fetches up to `count` candles total, issuing multiple requests with
+  `history_candlesticks_by_offset/3` to walk backward from the oldest
+  bar of each batch.
+
+  If the offset API is unavailable (e.g. paper-trading accounts), it
+  falls back to a single `candlesticks/6` call and returns whatever
+  the API provides.
+
+  ## Rate limiting
+
+  The SDK applies built-in rate-limit throttling (learned from
+  `user_quote_profile/2` at connection time). No manual throttling
+  is needed.
+
+  ## Options
+
+    * `:period` — same as `candlesticks/6` (default `:DAY`)
+    * `:count` — total number of candles to fetch (default 1000)
+    * `:adjust_type` — `0` or `1` (default `0`)
+    * `:batch_size` — candles per request (default 1000, the API max)
+    * `:trade_session` — `:NORMAL_TRADE` or `:ALL_TRADE` (default `:NORMAL_TRADE`)
+
+  ## Returns
+
+    * `{:ok, candlesticks}` — list of `Candlestick` structs, oldest first
+    * `{:error, reason}` — first error encountered
+
+  ## Example
+
+      {:ok, candles} = QuoteContext.candlesticks_paginated(ctx, "700.HK",
+        period: :DAY, count: 5000
+      )
+  """
+  @spec candlesticks_paginated(pid(), String.t(), keyword()) ::
+          {:ok, [struct()]} | {:error, term()}
+  def candlesticks_paginated(pid, symbol, opts) do
+    period = Keyword.get(opts, :period, :DAY)
+    count = Keyword.get(opts, :count, 1000)
+    adjust_type = Keyword.get(opts, :adjust_type, 0)
+    batch_size = min(Keyword.get(opts, :batch_size, 1000), 1000)
+    trade_session = Keyword.get(opts, :trade_session, :NORMAL_TRADE)
+
+    paginate(pid, symbol, period, count, adjust_type, batch_size, trade_session, [], MapSet.new())
+  end
+
+  defp paginate(_pid, _symbol, _period, remaining, _adjust, _batch, _session, acc, _seen)
+       when remaining <= 0 do
+    {:ok, sort_by_ts(acc)}
+  end
+
+  defp paginate(pid, symbol, period, remaining, adjust, batch, session, acc, seen) do
+    fetch_count = min(batch, remaining)
+
+    with {:ok, resp} <- candlesticks(pid, symbol, period, fetch_count, adjust, session),
+         candles when candles != [] <- resp.candlesticks do
+      new_candles = Enum.reject(candles, &MapSet.member?(seen, &1.timestamp))
+
+      if new_candles == [] do
+        {:ok, sort_by_ts(acc)}
+      else
+        new_seen = Enum.reduce(new_candles, seen, &MapSet.put(&2, &1.timestamp))
+        new_acc = new_candles ++ acc
+        fetched = length(new_candles)
+
+        if fetched < fetch_count do
+          {:ok, sort_by_ts(new_acc)}
+        else
+          paginate(
+            pid,
+            symbol,
+            period,
+            remaining - fetched,
+            adjust,
+            batch,
+            session,
+            new_acc,
+            new_seen
+          )
+        end
+      end
+    else
+      [] ->
+        {:ok, sort_by_ts(acc)}
+
+      {:error, _reason} = err ->
+        err
+    end
+  end
+
+  defp sort_by_ts(candles), do: Enum.sort_by(candles, & &1.timestamp)
+
+  @doc """
   Queries historical candlesticks for a symbol, walking forward or
   backward from a specific date and time.
 

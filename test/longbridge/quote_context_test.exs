@@ -876,6 +876,128 @@ defmodule Longbridge.QuoteContextTest do
     end
   end
 
+  describe "candlesticks_paginated/3" do
+    @describetag timeout: 120_000
+
+    test "returns all candles in a single batch when count <= batch_size" do
+      candles = for i <- 1..3, do: %Q.Candlestick{timestamp: i, close: "#{i}00.0"}
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: candles}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag1#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, result} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 3)
+      assert length(result) == 3
+      assert List.first(result).timestamp == 1
+      assert List.last(result).timestamp == 3
+      cleanup(server, ctx)
+    end
+
+    test "stops when API returns fewer candles than requested" do
+      candles = for i <- 1..3, do: %Q.Candlestick{timestamp: i, close: "#{i}00"}
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: candles}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag3#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, result} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 1000)
+      assert length(result) == 3
+      cleanup(server, ctx)
+    end
+
+    test "returns empty list when API returns no candles" do
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag4#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, result} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 100)
+      assert result == []
+      cleanup(server, ctx)
+    end
+
+    test "paginates multiple batches when offset API returns different data" do
+      batch1 = for i <- 1..5, do: %Q.Candlestick{timestamp: i, close: "#{i}00"}
+      batch2 = for i <- 6..10, do: %Q.Candlestick{timestamp: i, close: "#{i}00"}
+      counter = :counters.new(1, [])
+      test_pid = self()
+
+      handler = fn client, _tp, cmd_code, req_id, _body ->
+        if cmd_code == 4 do
+          resp = %Q.UserQuoteProfileResponse{}
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp)))
+          )
+        else
+          _ = :counters.add(counter, 1, 1)
+          n = :counters.get(counter, 1)
+
+          batch = if n == 1, do: batch1, else: batch2
+          resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: batch}
+          send(test_pid, {:batch_call, n})
+
+          :gen_tcp.send(
+            client,
+            ws_encode_binary(build_response(cmd_code, req_id, encode_msg(resp)))
+          )
+        end
+      end
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag6#{System.unique_integer([:positive])}",
+          handler
+        )
+
+      assert {:ok, result} =
+               QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 10, batch_size: 5)
+
+      assert length(result) == 10
+      assert List.first(result).timestamp == 1
+      assert List.last(result).timestamp == 10
+      cleanup(server, ctx)
+    end
+
+    test "stops when all candles are duplicates (no more history)" do
+      candles = for i <- 1..5, do: %Q.Candlestick{timestamp: i, close: "#{i}00"}
+      resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: candles}
+
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag7#{System.unique_integer([:positive])}",
+          inspect_handler(resp, Q.SecurityCandlestickRequest)
+        )
+
+      assert {:ok, result} =
+               QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 1000, batch_size: 5)
+
+      assert length(result) == 5
+      cleanup(server, ctx)
+    end
+
+    test "returns error when API fails" do
+      {server, ctx} =
+        connected_ctx(
+          "sess-pag5#{System.unique_integer([:positive])}",
+          error_handler(7)
+        )
+
+      assert {:error, _} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 100)
+      cleanup(server, ctx)
+    end
+  end
+
   describe "other API methods" do
     test "history_candlesticks_by_offset/3 sends an offset query" do
       resp = %Q.SecurityCandlestickResponse{symbol: "AAPL.US", candlesticks: []}
