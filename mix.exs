@@ -107,7 +107,6 @@ defmodule Longbridge.MixProject do
        app: false,
        compile: false,
        only: [:dev, :test]},
-      {:pi_bridge, "~> 0.6", only: :dev},
       {:finch, "~> 0.18"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
