@@ -246,13 +246,6 @@ defmodule Longbridge.MarketContextTest do
     end
   end
 
-  describe "trading_days/4" do
-    test "returns :removed_upstream" do
-      assert {:error, :removed_upstream} =
-               MarketContext.trading_days(config_with(0), "2024-01-01", "2024-12-31", "US")
-    end
-  end
-
   describe "top_movers/2" do
     test "POSTs with encoded sort atom" do
       server =

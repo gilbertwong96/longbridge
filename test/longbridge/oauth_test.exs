@@ -425,10 +425,10 @@ defmodule Longbridge.OAuthTest do
 
     json =
       JSON.encode!(%{
-        access_token: token.access_token(),
-        refresh_token: token.refresh_token(),
-        expires_at: token.expires_at(),
-        token_type: token.token_type(),
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        expires_at: token.expires_at,
+        token_type: token.token_type,
         http_url: token[:http_url]
       })
 
@@ -852,7 +852,7 @@ defmodule Longbridge.OAuthTest do
           )
         end)
 
-      authorize_url =
+      _authorize_url =
         receive do
           {:authorize_url, url} -> url
         after
