@@ -124,10 +124,11 @@ defmodule Longbridge.MixProject do
 
   defp package do
     [
-      description:
-        "Elixir SDK for the Longbridge OpenAPI trading platform — " <>
-          "real-time market data, order submission, push subscriptions, " <>
-          "and OAuth 2.0 authentication for US, HK, SG, and CN markets.",
+      description: """
+      Elixir SDK for the Longbridge OpenAPI trading platform — real-time
+      market data, order submission, push subscriptions, and OAuth 2.0
+      authentication for US, HK, SG, and CN markets.
+      """,
       licenses: ["MIT"],
       links: %{
         "GitHub" => "https://github.com/gilbertwong96/longbridge",
