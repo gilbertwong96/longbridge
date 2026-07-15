@@ -19,7 +19,7 @@ Add `longbridge` to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:longbridge, "~> 0.1.2"}
+    {:longbridge, "~> 0.2.0"}
   ]
 end
 ```
