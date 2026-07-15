@@ -450,26 +450,29 @@ defmodule Longbridge.QuoteContext do
     batch_size = min(Keyword.get(opts, :batch_size, 1000), 1000)
     trade_session = Keyword.get(opts, :trade_session, :NORMAL_TRADE)
 
-    paginate(pid, symbol, period, count, adjust_type, batch_size, trade_session, [], MapSet.new())
+    paginate(pid, symbol, period, count, adjust_type, batch_size, trade_session, %{
+      acc: [],
+      seen: MapSet.new()
+    })
   end
 
-  defp paginate(_pid, _symbol, _period, remaining, _adjust, _batch, _session, acc, _seen)
+  defp paginate(_pid, _symbol, _period, remaining, _adjust, _batch, _session, state)
        when remaining <= 0 do
-    {:ok, sort_by_ts(acc)}
+    {:ok, sort_by_ts(state.acc)}
   end
 
-  defp paginate(pid, symbol, period, remaining, adjust, batch, session, acc, seen) do
+  defp paginate(pid, symbol, period, remaining, adjust, batch, session, state) do
     fetch_count = min(batch, remaining)
 
     with {:ok, resp} <- candlesticks(pid, symbol, period, fetch_count, adjust, session),
          candles when candles != [] <- resp.candlesticks do
-      new_candles = Enum.reject(candles, &MapSet.member?(seen, &1.timestamp))
+      new_candles = Enum.reject(candles, &MapSet.member?(state.seen, &1.timestamp))
 
       if new_candles == [] do
-        {:ok, sort_by_ts(acc)}
+        {:ok, sort_by_ts(state.acc)}
       else
-        new_seen = Enum.reduce(new_candles, seen, &MapSet.put(&2, &1.timestamp))
-        new_acc = new_candles ++ acc
+        new_seen = Enum.reduce(new_candles, state.seen, &MapSet.put(&2, &1.timestamp))
+        new_acc = new_candles ++ state.acc
         fetched = length(new_candles)
 
         if fetched < fetch_count do
@@ -483,14 +486,13 @@ defmodule Longbridge.QuoteContext do
             adjust,
             batch,
             session,
-            new_acc,
-            new_seen
+            %{state | acc: new_acc, seen: new_seen}
           )
         end
       end
     else
       [] ->
-        {:ok, sort_by_ts(acc)}
+        {:ok, sort_by_ts(state.acc)}
 
       {:error, _reason} = err ->
         err
