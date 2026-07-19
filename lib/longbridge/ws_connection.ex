@@ -78,6 +78,7 @@ defmodule Longbridge.WSConnection do
 
     state = %{
       config: config,
+      socket_token: nil,
       type: type,
       ws_url: ws_url_for(config, type),
       ws_host: nil,
@@ -129,7 +130,9 @@ defmodule Longbridge.WSConnection do
   defp fetch_socket_token(state) do
     case Longbridge.Config.with_socket_token(state.config) do
       {:ok, new_config} ->
-        {:ok, %{state | config: new_config}}
+        # Store the OTP separately; keep config.token as the original JWT
+        # so reconnects can fetch a fresh OTP.
+        {:ok, %{state | socket_token: new_config.token}}
 
       {:error, reason} ->
         Logger.warning(
@@ -561,7 +564,7 @@ defmodule Longbridge.WSConnection do
   # ── Wire format ──────────────────────────────────────────
 
   defp do_auth(state) do
-    token = state.config.token
+    token = state.socket_token || state.config.token
 
     if token do
       {data, req_id} = build_auth_request(state, token)
