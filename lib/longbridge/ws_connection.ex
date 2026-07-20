@@ -66,6 +66,18 @@ defmodule Longbridge.WSConnection do
     GenServer.call(pid, :get_session)
   end
 
+  @doc false
+  @spec connected?(pid()) :: boolean()
+  def connected?(pid) do
+    GenServer.call(pid, :is_connected)
+  end
+
+  @doc false
+  @spec reconnect_now(pid()) :: :ok
+  def reconnect_now(pid) do
+    GenServer.cast(pid, :reconnect_now)
+  end
+
   # ── GenServer Callbacks ──────────────────────────────────
 
   @impl true
@@ -229,9 +241,30 @@ defmodule Longbridge.WSConnection do
   end
 
   @impl true
+  def handle_call(:is_connected, _from, state) do
+    {:reply, state.connection_state == :active, state}
+  end
+
+  @impl true
   def handle_call({:apply_rate_limits, entries}, _from, state) do
     RateLimit.set_limits(entries)
     {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_cast(:reconnect_now, state) do
+    if state.connection_state == :active do
+      {:noreply, state}
+    else
+      _ =
+        if state.reconnect_timer do
+          Process.cancel_timer(state.reconnect_timer)
+        end
+
+      Logger.info("[Longbridge.#{state.type}] Immediate reconnect requested")
+      send(self(), :reconnect)
+      {:noreply, %{state | reconnect_timer: nil}}
+    end
   end
 
   @impl true
@@ -538,7 +571,11 @@ defmodule Longbridge.WSConnection do
         end
 
       {:pong, _data}, state ->
-        state
+        # A pong reply means the connection is alive even if no
+        # business data arrived — reset the idle timer so a quiet
+        # market (e.g. overnight, weekend) doesn't trigger a
+        # spurious idle_timeout disconnect.
+        schedule_idle_timer(state)
 
       {:close, _code, _reason}, state ->
         do_disconnect(state, :peer_closed)

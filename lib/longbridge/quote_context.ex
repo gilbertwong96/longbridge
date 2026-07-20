@@ -132,6 +132,33 @@ defmodule Longbridge.QuoteContext do
   end
 
   @doc """
+  Returns `true` if the underlying WebSocket connection is active.
+  """
+  @spec connected?(pid()) :: boolean()
+  def connected?(pid) do
+    GenServer.call(pid, :is_connected)
+  end
+
+  @doc """
+  Ensures the WebSocket connection is active, reconnecting immediately if needed.
+
+  If the connection is already active, returns `:ok` immediately.
+  Otherwise, triggers an immediate reconnect (cancelling any pending
+  backoff timer) and blocks until the connection is active or
+  `timeout_ms` elapses.
+
+  Returns `:ok` when connected, `{:error, :timeout}` on timeout.
+  """
+  @spec ensure_connected(pid(), non_neg_integer()) :: :ok | {:error, :timeout}
+  def ensure_connected(pid, timeout_ms) do
+    if connected?(pid) do
+      :ok
+    else
+      GenServer.call(pid, {:ensure_connected, timeout_ms}, timeout_ms + 5_000)
+    end
+  end
+
+  @doc """
   Queries the user's quote profile (cmd_code 4).
 
   Returns the user's `member_id`, `quote_level`, `subscribe_limit`,
@@ -1036,7 +1063,8 @@ defmodule Longbridge.QuoteContext do
          # losing push delivery.
          subscriptions: %{},
          push_callbacks: %{},
-         default_push_callback: nil
+         default_push_callback: nil,
+         ensure_connected_waiters: []
        }}
     end
   end
@@ -1076,6 +1104,24 @@ defmodule Longbridge.QuoteContext do
   def handle_call(:session, _from, state) do
     reply = WSConnection.get_session(state.conn)
     {:reply, reply, state}
+  end
+
+  @impl true
+  def handle_call(:is_connected, _from, state) do
+    {:reply, WSConnection.connected?(state.conn), state}
+  end
+
+  @impl true
+  def handle_call({:ensure_connected, timeout_ms}, from, state) do
+    if WSConnection.connected?(state.conn) do
+      {:reply, :ok, state}
+    else
+      WSConnection.reconnect_now(state.conn)
+      timer = Process.send_after(self(), {:ensure_connected_timeout, from}, timeout_ms)
+
+      {:noreply,
+       %{state | ensure_connected_waiters: [{from, timer} | state.ensure_connected_waiters]}}
+    end
   end
 
   @impl true
@@ -1146,10 +1192,25 @@ defmodule Longbridge.QuoteContext do
 
   @impl true
   def handle_info({:longbridge, conn, {:connected, _session_id}}, %{conn: conn} = state) do
-    # The WS connection (re)connected. Re-apply recorded subscriptions so
-    # push delivery resumes after a reconnect instead of going silent.
-    state = resubscribe(state)
+    state =
+      state
+      |> resubscribe()
+      |> reply_ensure_connected_waiters()
+
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:ensure_connected_timeout, from}, state) do
+    case List.keytake(state.ensure_connected_waiters, from, 0) do
+      {{^from, timer}, rest} ->
+        _ = Process.cancel_timer(timer)
+        GenServer.reply(from, {:error, :timeout})
+        {:noreply, %{state | ensure_connected_waiters: rest}}
+
+      nil ->
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -1361,6 +1422,15 @@ defmodule Longbridge.QuoteContext do
     end)
 
     state
+  end
+
+  defp reply_ensure_connected_waiters(state) do
+    Enum.each(state.ensure_connected_waiters, fn {from, timer} ->
+      _ = Process.cancel_timer(timer)
+      GenServer.reply(from, :ok)
+    end)
+
+    %{state | ensure_connected_waiters: []}
   end
 
   defp period_code(:ONE_MINUTE), do: 1
