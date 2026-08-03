@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1]
+
+### Fixed
+
+- **Reconnect after an idle timeout no longer uses a stale OTP** — the
+  one-time password was previously written over `config.token`, so
+  reconnects reused the spent OTP and failed auth (status 5), and the
+  follow-up token refresh failed with 401 as well. The OTP now lives in
+  a separate `socket_token` field and is re-derived on every connect.
+- **`order_type` atoms map to the Longbridge enum names** (`:lo` →
+  `"LO"`, `:elo` → `"ELO"`, `:market` → `"MO"`, ...) instead of being
+  camelized, so typed order submission sends the correct wire values.
+- **HTTP POST/PUT requests send `Content-Type: application/json`** —
+  the server ignored JSON bodies without the header, breaking order
+  placement and other write endpoints.
+- **`order_changed` push events are decoded from the real server
+  format** (topic `private`, `event`/`data` wrapper) — `on_order_changed`
+  callbacks now receive the order payload itself.
+- **Stopping a `TradeContext` or `QuoteContext` also stops its WebSocket
+  connection** — previously the connection kept reconnecting in the
+  background after the context process exited.
+
 ## [0.2.0]
 
 ### Added
