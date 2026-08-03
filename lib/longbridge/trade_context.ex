@@ -775,14 +775,27 @@ defmodule Longbridge.TradeContext do
   # ── Push event processing ───────────────────────────────
 
   defp dispatch_push({:push, 18, body}, callbacks, default_callback) do
-    notif = Protox.decode!(body, Longbridge.Trade.V1.Notification)
+    case Protox.decode(body, Longbridge.Trade.V1.Notification) do
+      {:ok, notif} ->
+        Logger.info(
+          "[TradeContext] push cmd=18 topic=#{inspect(notif.topic)} " <>
+            "content_type=#{inspect(notif.content_type)} data_bytes=#{byte_size(notif.data)}"
+        )
 
-    if notif.topic != "" and notif.data != "" do
-      dispatch_notification(notif, callbacks, default_callback)
+        if notif.topic != "" and notif.data != "" do
+          dispatch_notification(notif, callbacks, default_callback)
+        end
+
+      {:error, reason} ->
+        Logger.warning("[TradeContext] push cmd=18 decode failed: #{inspect(reason)}")
+        :ok
     end
   end
 
-  defp dispatch_push({:push, _cmd_code, _body}, _callbacks, nil), do: :ok
+  defp dispatch_push({:push, cmd_code, _body}, _callbacks, nil) do
+    Logger.info("[TradeContext] push cmd=#{cmd_code} ignored (no default callback)")
+    :ok
+  end
 
   defp dispatch_push({:push, _cmd_code, body}, _callbacks, default_callback) do
     case JSON.decode(body) do
@@ -791,7 +804,10 @@ defmodule Longbridge.TradeContext do
     end
   end
 
-  defp dispatch_push(_other, _callbacks, _default), do: :ok
+  defp dispatch_push(other, _callbacks, _default) do
+    Logger.info("[TradeContext] push received: #{inspect(other, limit: 5)}")
+    :ok
+  end
 
   defp dispatch_notification(notif, callbacks, default_callback) do
     case JSON.decode(notif.data) do
@@ -800,10 +816,18 @@ defmodule Longbridge.TradeContext do
 
         if callback = push_callback(callbacks, notif.topic, default_callback) do
           callback.(event)
+        else
+          Logger.warning(
+            "[TradeContext] no callback for push topic #{inspect(notif.topic)} " <>
+              "(registered: #{inspect(Map.keys(callbacks))}, default: #{default_callback != nil})"
+          )
         end
 
-      _ ->
-        :ok
+      {:error, reason} ->
+        Logger.warning(
+          "[TradeContext] push JSON decode failed for topic #{inspect(notif.topic)}: " <>
+            "#{inspect(reason)} data=#{inspect(notif.data, limit: 200)}"
+        )
     end
   end
 

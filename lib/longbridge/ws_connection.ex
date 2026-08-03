@@ -797,6 +797,10 @@ defmodule Longbridge.WSConnection do
   end
 
   defp dispatch_packet(state, %Header{type: :push} = header, body) do
+    Logger.info(
+      "[WSConnection.#{state.type}] push cmd=#{header.cmd_code} bytes=#{byte_size(body)}"
+    )
+
     Session.dispatch_push(state, header, body)
   end
 
