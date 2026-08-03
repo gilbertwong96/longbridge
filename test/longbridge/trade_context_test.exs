@@ -54,10 +54,10 @@ defmodule Longbridge.TradeContextTest do
 
   defp parse_request(req) do
     [head, body] = String.split(req, "\r\n\r\n", parts: 2)
-    [request_line | _header_lines] = String.split(head, "\r\n", parts: 2)
+    [request_line, header_lines] = String.split(head, "\r\n", parts: 2)
     [method, path, _ver] = String.split(request_line, " ", parts: 3)
 
-    %{method: method, path: path, body: body || ""}
+    %{method: method, path: path, headers: header_lines || "", body: body || ""}
   end
 
   # ── Tests ────────────────────────────────────────────────
@@ -69,6 +69,12 @@ defmodule Longbridge.TradeContextTest do
           parsed = parse_request(req)
           assert parsed.method == "POST"
           assert String.starts_with?(parsed.path, "/v1/trade/order")
+          # Without this header the server ignores the JSON body
+          assert String.contains?(
+                   String.downcase(parsed.headers),
+                   "content-type: application/json"
+                 )
+
           # All-caps order type enum names must survive the transform
           assert parsed.body =~ "\"order_type\":\"LO\""
           assert parsed.body =~ "\"side\":\"Buy\""

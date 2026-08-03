@@ -174,6 +174,16 @@ defmodule Longbridge.HTTPClient do
         {"x-api-signature", signature_header}
       ] ++ (config.headers || [])
 
+    # POST/PUT bodies are JSON. Without an explicit content type the
+    # server ignores the body and parses an empty SubmitRequest, which
+    # surfaces as "invalid OrderType" errors.
+    request_headers =
+      if method in [:post, :put] do
+        [{"content-type", "application/json"} | request_headers]
+      else
+        request_headers
+      end
+
     do_signed_request(method, http_url, path_with_query, request_headers, body, opts)
   end
 
