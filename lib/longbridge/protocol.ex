@@ -156,7 +156,8 @@ defmodule Longbridge.Protocol do
   defp decompress_body(%Header{gzip: true}, body) do
     :zlib.gunzip(body)
   rescue
-    e -> reraise "longbridge gzip decompression failed: #{Exception.message(e)}", __STACKTRACE__
+    e in [ErlangError] ->
+      reraise "longbridge gzip decompression failed: #{Exception.message(e)}", __STACKTRACE__
   end
 
   defp decompress_body(%Header{gzip: false}, body), do: body

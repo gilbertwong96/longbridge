@@ -1298,7 +1298,7 @@ defmodule Longbridge.QuoteContext do
   defp safe_decode_push(cmd_code, body) do
     {:ok, decode_push(cmd_code, body)}
   rescue
-    _ -> {:error, :decode_failed}
+    e in [Protox.DecodingError, FunctionClauseError] -> {:error, :decode_failed}
   end
 
   defp push_to_store(store, @push_cmd_quote, %Q.PushQuote{} = push),

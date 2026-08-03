@@ -77,7 +77,7 @@ defmodule Longbridge.Symbol.Store do
           Longbridge.Symbol.Directory.create_and_load!()
           :ok
         rescue
-          e -> {:error, e, __STACKTRACE__}
+          e in [RuntimeError, ArgumentError] -> {:error, e, __STACKTRACE__}
         end
       end
 
