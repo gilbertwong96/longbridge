@@ -89,6 +89,54 @@ defmodule Longbridge.TradePushTest do
       Process.exit(ctx, :kill)
     end
 
+    test "delivers pushes whose topic echoes the subscription (private) with event/data wrapper" do
+      event_json =
+        JSON.encode!(%{
+          "event" => "order_changed_lb",
+          "data" => %{
+            "order_id" => "424242",
+            "symbol" => "700.HK",
+            "status" => "FilledStatus",
+            "executed_quantity" => "200",
+            "executed_price" => "50.5"
+          }
+        })
+
+      notification = %Longbridge.Trade.V1.Notification{
+        topic: "private",
+        content_type: :CONTENT_JSON,
+        dispatch_type: :DISPATCH_DIRECT,
+        data: event_json
+      }
+
+      config =
+        Config.new(
+          token: "test-token",
+          http_url: "http://127.0.0.1:1"
+        )
+
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+      Process.sleep(50)
+
+      parent = self()
+
+      TradeContext.set_on_order_changed(
+        ctx,
+        fn event -> send(parent, {:trade_event, event}) end
+      )
+
+      push_msg = {:push, 18, encode_notification(notification)}
+      send(ctx, {:longbridge, ctx, push_msg})
+
+      assert_receive {:trade_event, event}, 2_000
+      assert event["order_id"] == "424242"
+      assert event["status"] == "FilledStatus"
+      assert event["executed_quantity"] == "200"
+      assert event["executed_price"] == "50.5"
+
+      Process.exit(ctx, :kill)
+    end
+
     test "ignores non-JSON content type" do
       notification = %Longbridge.Trade.V1.Notification{
         topic: "/v1/trade/order_changed",

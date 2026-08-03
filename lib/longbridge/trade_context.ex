@@ -777,13 +777,21 @@ defmodule Longbridge.TradeContext do
   defp dispatch_push({:push, 18, body}, callbacks, default_callback) do
     notif = Protox.decode!(body, Longbridge.Trade.V1.Notification)
 
-    if notif.topic != "" and notif.content_type == :CONTENT_JSON and notif.data != "" do
+    if notif.topic != "" and notif.data != "" do
       case JSON.decode(notif.data) do
         {:ok, event} ->
+          event = unwrap_order_changed(event)
+
           if callback = Map.get(callbacks, notif.topic) do
             callback.(event)
           else
-            if default_callback, do: default_callback.(event)
+            # The server echoes the subscribed topic ("private") on pushes,
+            # while callbacks are registered under the canonical topic path.
+            if callback = Map.get(callbacks, @order_changed_topic) do
+              callback.(event)
+            else
+              if default_callback, do: default_callback.(event)
+            end
           end
 
         _ ->
@@ -802,4 +810,7 @@ defmodule Longbridge.TradeContext do
   end
 
   defp dispatch_push(_other, _callbacks, _default), do: :ok
+
+  defp unwrap_order_changed(%{"event" => "order_changed_lb", "data" => %{} = data}), do: data
+  defp unwrap_order_changed(event), do: event
 end
