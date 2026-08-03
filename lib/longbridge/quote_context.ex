@@ -1254,6 +1254,24 @@ defmodule Longbridge.QuoteContext do
     {:noreply, %{state | default_push_callback: callback}}
   end
 
+  @impl true
+  def terminate(_reason, %{conn: conn}) when is_pid(conn) do
+    # The connection is linked to this process, but a normal stop doesn't
+    # reach it (normal exit signals are ignored), so it would keep
+    # reconnecting on its own. Stop it explicitly.
+    Process.unlink(conn)
+
+    try do
+      GenServer.stop(conn, :shutdown, 1_000)
+    catch
+      :exit, _ -> :ok
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
   # ── Push event dispatch ───────────────────────────────
 
   defp dispatch_push({:push, cmd_code, body}, callbacks, default_callback, store) do

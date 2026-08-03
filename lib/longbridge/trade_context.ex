@@ -562,6 +562,24 @@ defmodule Longbridge.TradeContext do
     {:reply, unwrap_http(result), state}
   end
 
+  @impl true
+  def terminate(_reason, %{conn: conn}) when is_pid(conn) do
+    # The connection is linked to this process, but a normal stop doesn't
+    # reach it (normal exit signals are ignored), so it would keep
+    # reconnecting on its own. Stop it explicitly.
+    Process.unlink(conn)
+
+    try do
+      GenServer.stop(conn, :shutdown, 1_000)
+    catch
+      :exit, _ -> :ok
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
   # Performs an HTTP request, automatically retrying once on a 401
   # (token-expired) response by calling Config.refresh_access_token/2
   # and persisting the refreshed token into `state.http_config`.
