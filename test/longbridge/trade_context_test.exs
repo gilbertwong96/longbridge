@@ -69,6 +69,10 @@ defmodule Longbridge.TradeContextTest do
           parsed = parse_request(req)
           assert parsed.method == "POST"
           assert String.starts_with?(parsed.path, "/v1/trade/order")
+          # All-caps order type enum names must survive the transform
+          assert parsed.body =~ "\"order_type\":\"LO\""
+          assert parsed.body =~ "\"side\":\"Buy\""
+          assert parsed.body =~ "\"time_in_force\":\"Day\""
           reply_json(sock, %{code: 0, message: "ok", data: %{"order_id" => "12345"}})
         end)
 
@@ -82,6 +86,51 @@ defmodule Longbridge.TradeContextTest do
                  symbol: "AAPL.US",
                  side: :buy,
                  order_type: :lo,
+                 submitted_quantity: "100",
+                 time_in_force: :day,
+                 submitted_price: "250.00"
+               )
+    end
+
+    test "market order maps to the MO enum name" do
+      server =
+        start_fake_http_server(fn req, sock ->
+          parsed = parse_request(req)
+          assert parsed.body =~ "\"order_type\":\"MO\""
+          reply_json(sock, %{code: 0, message: "ok", data: %{"order_id" => "1"}})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, _} =
+               TradeContext.submit_order(ctx,
+                 symbol: "AAPL.US",
+                 side: :buy,
+                 order_type: :market,
+                 submitted_quantity: "100",
+                 time_in_force: :day
+               )
+    end
+
+    test "enhanced limit order maps to the ELO enum name" do
+      server =
+        start_fake_http_server(fn req, sock ->
+          parsed = parse_request(req)
+          assert parsed.body =~ "\"order_type\":\"ELO\""
+          reply_json(sock, %{code: 0, message: "ok", data: %{"order_id" => "1"}})
+        end)
+
+      on_exit(fn -> stop_fake_http_server(server) end)
+      config = test_config(server.port)
+      {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
+
+      assert {:ok, _} =
+               TradeContext.submit_order(ctx,
+                 symbol: "AAPL.US",
+                 side: :buy,
+                 order_type: :elo,
                  submitted_quantity: "100",
                  time_in_force: :day,
                  submitted_price: "250.00"

@@ -735,22 +735,42 @@ defmodule Longbridge.TradeContext do
 
   # ── Key/value transforms (atom → API-compatible string) ──
 
+  # Longbridge REST enum names. The all-caps abbreviations (LO/ELO/MO)
+  # would be mangled by Macro.camelize/1 ("elo" → "Elo"), so order_type
+  # atoms map through this table instead. Note the market order enum is
+  # "MO", not "Market".
+  @order_type_names %{
+    lo: "LO",
+    elo: "ELO",
+    alo: "ALO",
+    odd: "ODD",
+    lit: "LIT",
+    mit: "MIT",
+    tslpamt: "TSLPAMT",
+    tslppct: "TSLPPCT",
+    market: "MO"
+  }
+
   defp transform_keys(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {transform_key(k), transform_value(v)} end)
+    Map.new(map, fn {k, v} -> {transform_key(k), transform_value(transform_key(k), v)} end)
   end
 
   defp transform_key(k) when is_atom(k), do: Atom.to_string(k)
   defp transform_key(k) when is_binary(k), do: k
 
-  defp transform_value(v) when is_atom(v) do
+  defp transform_value("order_type", v) when is_atom(v) do
+    Map.get(@order_type_names, v, Atom.to_string(v))
+  end
+
+  defp transform_value(_key, v) when is_atom(v) do
     v |> Atom.to_string() |> Macro.camelize()
   end
 
-  defp transform_value(v) when is_list(v) do
-    Enum.map(v, &transform_value/1)
+  defp transform_value(key, v) when is_list(v) do
+    Enum.map(v, &transform_value(key, &1))
   end
 
-  defp transform_value(v), do: v
+  defp transform_value(_key, v), do: v
 
   # ── Push event processing ───────────────────────────────
 

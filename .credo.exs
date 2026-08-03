@@ -89,7 +89,7 @@
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []}
-        ]
+        ] ++ Enum.map(ExSlop.recommended_checks(), &{&1, []})
       }
     }
   ]

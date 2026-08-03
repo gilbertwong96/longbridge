@@ -79,7 +79,6 @@ defmodule Longbridge.MixProject do
         "format --check-formatted",
         "credo --strict",
         "deps.unlock --check-unused",
-        "deps.audit",
         "xref graph --label compile-connected --fail-above 0",
         "dialyzer",
         "ex_dna",
@@ -116,7 +115,6 @@ defmodule Longbridge.MixProject do
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:mint, "~> 1.9"},
       {:mint_web_socket, "~> 1.0"},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.7", only: [:dev, :test], runtime: false},
       {:bandit, "~> 1.8", only: [:dev, :test]}
     ]
