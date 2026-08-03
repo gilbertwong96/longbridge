@@ -778,25 +778,7 @@ defmodule Longbridge.TradeContext do
     notif = Protox.decode!(body, Longbridge.Trade.V1.Notification)
 
     if notif.topic != "" and notif.data != "" do
-      case JSON.decode(notif.data) do
-        {:ok, event} ->
-          event = unwrap_order_changed(event)
-
-          if callback = Map.get(callbacks, notif.topic) do
-            callback.(event)
-          else
-            # The server echoes the subscribed topic ("private") on pushes,
-            # while callbacks are registered under the canonical topic path.
-            if callback = Map.get(callbacks, @order_changed_topic) do
-              callback.(event)
-            else
-              if default_callback, do: default_callback.(event)
-            end
-          end
-
-        _ ->
-          :ok
-      end
+      dispatch_notification(notif, callbacks, default_callback)
     end
   end
 
@@ -810,6 +792,26 @@ defmodule Longbridge.TradeContext do
   end
 
   defp dispatch_push(_other, _callbacks, _default), do: :ok
+
+  defp dispatch_notification(notif, callbacks, default_callback) do
+    case JSON.decode(notif.data) do
+      {:ok, event} ->
+        event = unwrap_order_changed(event)
+
+        if callback = push_callback(callbacks, notif.topic, default_callback) do
+          callback.(event)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  # The server echoes the subscribed topic ("private") on pushes, while
+  # callbacks are registered under the canonical topic path.
+  defp push_callback(callbacks, topic, default_callback) do
+    Map.get(callbacks, topic) || Map.get(callbacks, @order_changed_topic) || default_callback
+  end
 
   defp unwrap_order_changed(%{"event" => "order_changed_lb", "data" => %{} = data}), do: data
   defp unwrap_order_changed(event), do: event
