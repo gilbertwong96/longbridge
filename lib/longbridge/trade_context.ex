@@ -637,6 +637,20 @@ defmodule Longbridge.TradeContext do
         state
       end
 
+    Logger.info(
+      "[TradeContext] WS connected, subscriptions=#{inspect(MapSet.to_list(state.subscriptions))}"
+    )
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:longbridge, _conn, {:disconnected, reason}}, state) do
+    Logger.warning(
+      "[TradeContext] WS disconnected: #{inspect(reason)}, " <>
+        "subscriptions=#{inspect(MapSet.to_list(state.subscriptions))}"
+    )
+
     {:noreply, state}
   end
 
@@ -680,10 +694,31 @@ defmodule Longbridge.TradeContext do
            body,
            state.ws_config.request_timeout
          ) do
-      {:ok, _body, _req_id} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, resp_body, _req_id} ->
+        maybe_log_sub_response(cmd_code, resp_body)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  # Sub/Unsub responses carry the server's subscription state; log them so
+  # a missing/failed private-topic subscription is visible in the logs.
+  defp maybe_log_sub_response(16, body) do
+    case Protox.decode(body, Longbridge.Trade.V1.SubResponse) do
+      {:ok, resp} ->
+        Logger.info(
+          "[TradeContext] subscribe response success=#{inspect(resp.success)} " <>
+            "fail=#{inspect(resp.fail)} current=#{inspect(resp.current)}"
+        )
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp maybe_log_sub_response(_cmd, _body), do: :ok
 
   defp schedule_heartbeat(interval) do
     Process.send_after(self(), :heartbeat, interval)
@@ -815,6 +850,11 @@ defmodule Longbridge.TradeContext do
     case JSON.decode(notif.data) do
       {:ok, event} ->
         event = unwrap_order_changed(event)
+
+        Logger.info(
+          "[TradeContext] order event order_id=#{inspect(event["order_id"])} " <>
+            "status=#{inspect(event["status"])}"
+        )
 
         if callback = push_callback(callbacks, notif.topic, default_callback) do
           callback.(event)

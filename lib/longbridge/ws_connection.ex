@@ -847,6 +847,11 @@ defmodule Longbridge.WSConnection do
   end
 
   defp do_disconnect(state, reason) do
+    Logger.warning(
+      "[Longbridge.#{state.type}] WS disconnected: #{inspect(reason)} " <>
+        "(reconnect_attempts=#{state.reconnect_attempts})"
+    )
+
     cleaned =
       state
       |> cleanup_socket()
