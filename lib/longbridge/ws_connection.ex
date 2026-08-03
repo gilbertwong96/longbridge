@@ -797,9 +797,12 @@ defmodule Longbridge.WSConnection do
   end
 
   defp dispatch_packet(state, %Header{type: :push} = header, body) do
-    Logger.info(
-      "[WSConnection.#{state.type}] push cmd=#{header.cmd_code} bytes=#{byte_size(body)}"
-    )
+    # Quote streams are high-frequency; only log trade push (order events).
+    if state.type == :trade do
+      Logger.info(
+        "[WSConnection.trade] push cmd=#{header.cmd_code} bytes=#{byte_size(body)}"
+      )
+    end
 
     Session.dispatch_push(state, header, body)
   end
