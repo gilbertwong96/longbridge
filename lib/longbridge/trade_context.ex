@@ -698,31 +698,13 @@ defmodule Longbridge.TradeContext do
            body,
            state.ws_config.request_timeout
          ) do
-      {:ok, resp_body, _req_id} ->
-        maybe_log_sub_response(cmd_code, resp_body)
+      {:ok, _resp_body, _req_id} ->
         :ok
 
       {:error, reason} ->
         {:error, reason}
     end
   end
-
-  # Sub/Unsub responses carry the server's subscription state; log them so
-  # a missing/failed private-topic subscription is visible in the logs.
-  defp maybe_log_sub_response(16, body) do
-    case Protox.decode(body, Longbridge.Trade.V1.SubResponse) do
-      {:ok, resp} ->
-        Logger.info(
-          "[TradeContext] subscribe response success=#{inspect(resp.success)} " <>
-            "fail=#{inspect(resp.fail)} current=#{inspect(resp.current)}"
-        )
-
-      {:error, _} ->
-        :ok
-    end
-  end
-
-  defp maybe_log_sub_response(_cmd, _body), do: :ok
 
   defp schedule_heartbeat(interval) do
     Process.send_after(self(), :heartbeat, interval)
@@ -818,11 +800,6 @@ defmodule Longbridge.TradeContext do
   defp dispatch_push({:push, 18, body}, callbacks, default_callback) do
     case Protox.decode(body, Longbridge.Trade.V1.Notification) do
       {:ok, notif} ->
-        Logger.info(
-          "[TradeContext] push cmd=18 topic=#{inspect(notif.topic)} " <>
-            "content_type=#{inspect(notif.content_type)} data_bytes=#{byte_size(notif.data)}"
-        )
-
         if notif.topic != "" and notif.data != "" do
           dispatch_notification(notif, callbacks, default_callback)
         end
@@ -833,10 +810,7 @@ defmodule Longbridge.TradeContext do
     end
   end
 
-  defp dispatch_push({:push, cmd_code, _body}, _callbacks, nil) do
-    Logger.info("[TradeContext] push cmd=#{cmd_code} ignored (no default callback)")
-    :ok
-  end
+  defp dispatch_push({:push, _cmd_code, _body}, _callbacks, nil), do: :ok
 
   defp dispatch_push({:push, _cmd_code, body}, _callbacks, default_callback) do
     case JSON.decode(body) do
@@ -845,20 +819,12 @@ defmodule Longbridge.TradeContext do
     end
   end
 
-  defp dispatch_push(other, _callbacks, _default) do
-    Logger.info("[TradeContext] push received: #{inspect(other, limit: 5)}")
-    :ok
-  end
+  defp dispatch_push(_other, _callbacks, _default), do: :ok
 
   defp dispatch_notification(notif, callbacks, default_callback) do
     case JSON.decode(notif.data) do
       {:ok, event} ->
         event = unwrap_order_changed(event)
-
-        Logger.info(
-          "[TradeContext] order event order_id=#{inspect(event["order_id"])} " <>
-            "status=#{inspect(event["status"])}"
-        )
 
         if callback = push_callback(callbacks, notif.topic, default_callback) do
           callback.(event)
