@@ -46,7 +46,7 @@ defmodule Longbridge.QuoteContext.RealtimeStoreTest do
       RealtimeStore.put_trades(store, push)
 
       assert {:ok, stored} = RealtimeStore.get_trades(store, "AAPL.US", 1000)
-      assert length(stored) == 500
+      assert Enum.count_until(stored, 500 + 1) == 500
       assert hd(stored).price == "2"
       assert List.last(stored).price == "501"
     end
@@ -60,7 +60,7 @@ defmodule Longbridge.QuoteContext.RealtimeStoreTest do
       RealtimeStore.put_trades(store, push)
 
       assert {:ok, last_three} = RealtimeStore.get_trades(store, "AAPL.US", 3)
-      assert length(last_three) == 3
+      assert Enum.count_until(last_three, 3 + 1) == 3
       assert List.last(last_three).price == "10"
     end
 

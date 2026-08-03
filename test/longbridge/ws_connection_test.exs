@@ -502,9 +502,7 @@ defmodule Longbridge.WSConnectionTest do
       push_body = "push-data-123"
       _push_packet = build_push_packet(101, push_body)
 
-      # We need to send the push from the server side...
-      # The server is already running. We need a different approach.
-      # Let's start a custom server that sends push after auth.
+      # The fake server only pushes on demand — restart it with push-on-auth
       stop_server(conn)
 
       # Start a new server that sends push data

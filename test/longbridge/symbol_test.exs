@@ -331,7 +331,7 @@ defmodule Longbridge.SymbolTest do
         )
         |> Enum.map(fn {:ok, r} -> r end)
 
-      assert length(results) == 50
+      assert Enum.count_until(results, 50 + 1) == 50
     end
 
     test "table is owned by the Store and survives the loading process" do

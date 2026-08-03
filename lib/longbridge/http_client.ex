@@ -166,7 +166,7 @@ defmodule Longbridge.HTTPClient do
         signed_headers
       )
 
-    request_headers =
+    base_headers =
       [
         {"x-api-key", config.app_key},
         {"authorization", config.token},
@@ -179,9 +179,9 @@ defmodule Longbridge.HTTPClient do
     # surfaces as "invalid OrderType" errors.
     request_headers =
       if method in [:post, :put] do
-        [{"content-type", "application/json"} | request_headers]
+        [{"content-type", "application/json"} | base_headers]
       else
-        request_headers
+        base_headers
       end
 
     do_signed_request(method, http_url, path_with_query, request_headers, body, opts)

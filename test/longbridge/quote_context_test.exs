@@ -890,7 +890,7 @@ defmodule Longbridge.QuoteContextTest do
         )
 
       assert {:ok, result} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 3)
-      assert length(result) == 3
+      assert Enum.count_until(result, 3 + 1) == 3
       assert List.first(result).timestamp == 1
       assert List.last(result).timestamp == 3
       cleanup(server, ctx)
@@ -907,7 +907,7 @@ defmodule Longbridge.QuoteContextTest do
         )
 
       assert {:ok, result} = QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 1000)
-      assert length(result) == 3
+      assert Enum.count_until(result, 3 + 1) == 3
       cleanup(server, ctx)
     end
 
@@ -963,7 +963,7 @@ defmodule Longbridge.QuoteContextTest do
       assert {:ok, result} =
                QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 10, batch_size: 5)
 
-      assert length(result) == 10
+      assert Enum.count_until(result, 10 + 1) == 10
       assert List.first(result).timestamp == 1
       assert List.last(result).timestamp == 10
       cleanup(server, ctx)
@@ -982,7 +982,7 @@ defmodule Longbridge.QuoteContextTest do
       assert {:ok, result} =
                QuoteContext.candlesticks_paginated(ctx, "AAPL.US", count: 1000, batch_size: 5)
 
-      assert length(result) == 5
+      assert Enum.count_until(result, 5 + 1) == 5
       cleanup(server, ctx)
     end
 
