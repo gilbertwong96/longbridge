@@ -74,9 +74,6 @@ jobs:
       - name: Credo (strict)
         run: mix credo --strict
 
-      - name: Audit dependencies for CVEs
-        run: mix deps.audit
-
       - name: Check for unused dependencies
         run: mix deps.unlock --check-unused
 

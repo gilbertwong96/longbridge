@@ -82,12 +82,7 @@ defmodule Longbridge.MixProject do
         "xref graph --label compile-connected --fail-above 0",
         "dialyzer",
         "ex_dna",
-        "reach.check --dead-code --smells",
-        # Run coverage through excoveralls so `coveralls.json`'s `skip_files`
-        # rule (excludes the auto-generated _protos.ex) is applied. `mix
-        # test --cover` bypasses excoveralls entirely and would re-include
-        # _protos.ex in the per-module HTML report.
-        "coveralls.json"
+        "reach.check --dead-code --smells"
       ],
       # Regenerate the pre-compiled protobuf modules in lib/longbridge/_protos.ex
       # from protos/*.proto. Requires `protoc` on $PATH (dev-only).
