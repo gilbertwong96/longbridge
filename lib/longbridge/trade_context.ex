@@ -132,7 +132,11 @@ defmodule Longbridge.TradeContext do
   """
   @spec start_link(Config.t(), keyword()) :: GenServer.on_start()
   def start_link(config, opts \\ []) do
-    GenServer.start_link(__MODULE__, {config, opts}, opts)
+    # Split SDK-specific opts (skip_connection, finch, token_refresher,
+    # ...) from GenServer opts: passing unknown keys straight through to
+    # GenServer.start_link violates its contract in dialyzer.
+    gen_opts = Keyword.take(opts, [:name, :timeout, :spawn_opt, :hibernate_after, :debug])
+    GenServer.start_link(__MODULE__, {config, opts}, gen_opts)
   end
 
   @doc """
