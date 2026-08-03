@@ -1,6 +1,11 @@
 defmodule Longbridge.WSConnectionExtraTest do
   use ExUnit.Case, async: false
 
+  # Connect-failure tests deliberately point at dead servers and watch
+  # the reconnect backoff, flooding the output with WSConnection logs;
+  # capture them and show them only when a test fails.
+  @moduletag capture_log: true
+
   alias Longbridge.{Config, Protocol, WSConnection}
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol.Header

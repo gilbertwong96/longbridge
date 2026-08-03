@@ -76,12 +76,19 @@ defmodule Longbridge.TestSupport.FakeHTTPServer do
 
     try do
       handler.(conn)
-    rescue
-      exception ->
+    catch
+      kind, reason ->
+        exception = Exception.normalize(kind, reason, __STACKTRACE__)
         HandlerStore.set(store, {:error, exception, __STACKTRACE__})
         Conn.send_resp(conn, 500, "test handler crashed")
     end
   end
+
+  # Pre-created Finch names, one per concurrently-running test server.
+  # Tests run sequentially, so this pool never runs dry; the whereis
+  # check reuses a slot as soon as the previous server's Finch is gone.
+  @finch_names for i <- 0..31, do: :"longbridge_test_finch_#{i}"
+  @finch_supervisor_names for name <- @finch_names, into: %{}, do: {name, :"#{name}.Supervisor"}
 
   @doc """
   Starts a server AND a fresh Finch pool whose name is stored in the
@@ -94,8 +101,7 @@ defmodule Longbridge.TestSupport.FakeHTTPServer do
           finch: atom()
         }
   def start_with_finch(handler) when is_function(handler, 1) do
-    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
-    finch_name = String.to_atom("longbridge_test_finch_#{System.unique_integer([:positive])}")
+    finch_name = finch_name()
 
     {:ok, _pid} =
       Finch.start_link(
@@ -126,8 +132,14 @@ defmodule Longbridge.TestSupport.FakeHTTPServer do
     if Process.alive?(sup), do: Supervisor.stop(sup, :shutdown)
     if Process.alive?(store), do: Agent.stop(store)
 
-    if finch_pid = Process.whereis(finch_name),
-      do: Process.exit(finch_pid, :kill)
+    # Unlink before stopping: the Finch supervisor was started from the
+    # test process, and a linked caller dies with the supervisor's
+    # :shutdown exit signal. Stopping synchronously guarantees the name
+    # slot is free before the next test reuses it.
+    if finch_sup = Process.whereis(@finch_supervisor_names[finch_name]) do
+      Process.unlink(finch_sup)
+      Supervisor.stop(finch_sup, :shutdown)
+    end
 
     :ok
   end
@@ -192,6 +204,16 @@ defmodule Longbridge.TestSupport.FakeHTTPServer do
   def ok(conn, data), do: json(conn, 200, data)
 
   # ── Internal ──────────────────────────────────────────────
+
+  defp finch_name do
+    Enum.find(@finch_names, fn name ->
+      # The registry (registered under `name`) and the supervisor
+      # (registered under `name.Supervisor`) are the last processes to
+      # unregister during teardown; check both so a crashed test that
+      # skipped `stop_with_finch/1` doesn't collide with the next start.
+      is_nil(Process.whereis(name)) and is_nil(Process.whereis(@finch_supervisor_names[name]))
+    end) || raise "all #{length(@finch_names)} fake Finch names are in use"
+  end
 
   defp free_port do
     {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])

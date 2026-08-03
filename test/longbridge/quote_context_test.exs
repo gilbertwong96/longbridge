@@ -1,6 +1,11 @@
 defmodule Longbridge.QuoteContextTest do
   use ExUnit.Case, async: false
 
+  # The fake WS server teardown deliberately kills connections, which
+  # makes WSConnection log reconnect churn; capture it and show it only
+  # when a test fails.
+  @moduletag capture_log: true
+
   alias Longbridge.{Config, Protocol, QuoteContext, WSConnection}
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol.Header

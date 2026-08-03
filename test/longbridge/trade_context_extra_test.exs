@@ -1,6 +1,11 @@
 defmodule Longbridge.TradeContextExtraTest do
   use ExUnit.Case, async: false
 
+  # Subscribe/unsubscribe tests run a real WS connection against fake
+  # servers and deliberately exercise disconnect paths; capture the
+  # WSConnection logs and show them only when a test fails.
+  @moduletag capture_log: true
+
   import Bitwise
 
   alias Longbridge.{Config, Protocol, TradeContext}
@@ -332,6 +337,7 @@ defmodule Longbridge.TradeContextExtraTest do
       {:ok, ctx} = TradeContext.start_link(config, skip_connection: true)
       Process.sleep(50)
       assert {:ok, nil, nil} = TradeContext.session(ctx)
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
   end
@@ -425,6 +431,7 @@ defmodule Longbridge.TradeContextExtraTest do
       )
 
       assert_receive :got, 1_000
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
   end
@@ -443,6 +450,7 @@ defmodule Longbridge.TradeContextExtraTest do
       # that falls into `_ -> :ok`.
       send(ctx, {:longbridge, ctx, {:push, 99, "not-json-at-all"}})
       refute_receive {:default, _}, 500
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
   end

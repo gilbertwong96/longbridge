@@ -1,6 +1,11 @@
 defmodule Longbridge.WSConnectionTest do
   use ExUnit.Case, async: false
 
+  # Connection tests deliberately drop sockets and time out auth to
+  # exercise reconnect paths; capture the WSConnection logs and show
+  # them only when a test fails.
+  @moduletag capture_log: true
+
   alias Longbridge.{Config, Protocol, WSConnection}
   alias Longbridge.Control.V1, as: Ctrl
   alias Longbridge.Protocol.Header

@@ -3,6 +3,9 @@ defmodule Longbridge.TradePushTest do
 
   alias Longbridge.{Config, TradeContext}
 
+  # Push tests run a real WS connection and exercise disconnect paths;
+  # capture the WSConnection logs and show them only on failure.
+  @moduletag capture_log: true
   @moduletag :trade_push
 
   defp encode_notification(notification) do
@@ -53,6 +56,7 @@ defmodule Longbridge.TradePushTest do
       assert event["status"] == "PartiallyFilled"
       assert event["filled_qty"] == "50"
 
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
 
@@ -86,6 +90,7 @@ defmodule Longbridge.TradePushTest do
       # Should NOT receive any event (empty topic)
       refute_receive {:event, _}, 500
 
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
 
@@ -134,6 +139,7 @@ defmodule Longbridge.TradePushTest do
       assert event["executed_quantity"] == "200"
       assert event["executed_price"] == "50.5"
 
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
 
@@ -166,6 +172,7 @@ defmodule Longbridge.TradePushTest do
 
       refute_receive {:event, _}, 500
 
+      Process.unlink(ctx)
       Process.exit(ctx, :kill)
     end
   end

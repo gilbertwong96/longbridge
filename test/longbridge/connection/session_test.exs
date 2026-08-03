@@ -1,6 +1,11 @@
 defmodule Longbridge.Connection.SessionTest do
   use ExUnit.Case, async: true
 
+  # Refresh-failure tests deliberately exercise the token-refresher
+  # error paths, which log warnings; capture them and show them only
+  # when a test fails.
+  @moduletag capture_log: true
+
   alias Longbridge.Config
   alias Longbridge.Connection.Session
 

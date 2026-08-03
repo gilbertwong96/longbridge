@@ -1,6 +1,11 @@
 defmodule Longbridge.TradeContextTest do
   use ExUnit.Case, async: false
 
+  # Reconnect tests deliberately break sockets and watch the retry
+  # backoff, flooding the output with WSConnection logs; capture them
+  # and show them only when a test fails.
+  @moduletag capture_log: true
+
   alias Longbridge.{Config, TradeContext}
 
   # ── Fake HTTP server ─────────────────────────────────────
