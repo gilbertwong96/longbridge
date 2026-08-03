@@ -65,6 +65,8 @@ defmodule Longbridge.TradeContext do
   use GenServer
   alias Longbridge.{Config, HTTPClient, WSConnection}
 
+  require Logger
+
   @order_changed_topic "/v1/trade/order_changed"
 
   # ── Constants ──────────────────────────────────────────
