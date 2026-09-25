@@ -18,8 +18,10 @@ defmodule Longbridge do
 
   The WebSocket layer uses a one-time password (OTP) obtained from
   `Longbridge.Config.with_socket_token/1`; the HTTP layer uses the
-  long-lived access token directly. `Longbridge.TradeContext.start_link/2`
-  splits the config into `ws_config` + `http_config` automatically.
+  long-lived access token directly. `Longbridge.WSConnection` fetches the
+  OTP itself during its own init — so starting a context never blocks on
+  the network, and a failed fetch schedules a reconnect instead of
+  failing the caller.
 
   ## Authentication
 

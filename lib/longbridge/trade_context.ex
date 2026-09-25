@@ -49,14 +49,15 @@ defmodule Longbridge.TradeContext do
 
   ## Two transports
 
-  `start_link/2` splits the config into:
+  `start_link/2` keeps the original config on `state.http_config` and hands
+  that same config to `Longbridge.WSConnection`, which fetches the WS
+  one-time password (OTP) during its own init — and schedules a reconnect
+  when that fetch fails. REST requests are signed with HMAC-SHA256 using
+  the long-lived access token; `401 Unauthorized` responses are
+  automatically retried once after a token refresh.
 
-    * `state.ws_config` — `Longbridge.Config.with_socket_token/1` applied, used
-      to authenticate the Mint WebSocket. Auth uses the OTP, not the
-      long-lived access token.
-    * `state.http_config` — the original config, used to sign REST
-      requests with HMAC-SHA256. HTTP `401 Unauthorized` responses
-      are automatically retried once after a token refresh.
+  Fetching the OTP here instead used to make a transient connect hiccup
+  fail `init/1`, which took the caller's supervision tree down with it.
 
   For OAuth users, inject `token_refresher:` to `start_link/2` so
   the context can refresh the long-lived token after a 401.
@@ -97,13 +98,13 @@ defmodule Longbridge.TradeContext do
   The context owns both:
 
     * a `Longbridge.WSConnection` to `config.trade_ws_url` for push
-      subscriptions (order-changed events, etc.). Auth uses the OTP
-      from `Longbridge.Config.with_socket_token/1`.
+      subscriptions (order-changed events, etc.). The connection fetches
+      its own one-time password from
+      `Longbridge.Config.with_socket_token/1`.
     * a per-instance HTTP config for signed REST requests (orders,
       account, executions, positions, cash flow). The original
       `config.token` is kept on `state.http_config` so HTTP requests
-      sign with the long-lived access token, while WS auth uses the
-      OTP from `ws_config`.
+      sign with the long-lived access token.
 
   ## Options
 
@@ -453,12 +454,10 @@ defmodule Longbridge.TradeContext do
 
   @impl true
   def init({config, opts}) do
-    # Derive the WS-only OTP config from the caller's access-token config.
-    # The OTP authenticates only the WebSocket handshake. HTTP endpoints
-    # require the original access token, so we keep both side by side and
-    # never let the WS rotation poison HTTP signing.
-    {:ok, ws_config} = Config.with_socket_token(config)
-    http_config = config
+    # No network call on purpose: WSConnection fetches the socket OTP during
+    # its own init and still returns {:ok, _} (with a scheduled reconnect)
+    # when that fetch fails. Fetching the OTP here made a transient connect
+    # hiccup fail this init/1 and take the caller's supervisor down with it.
     finch = Keyword.get(opts, :finch)
     token_refresher = Keyword.get(opts, :token_refresher)
 
@@ -466,8 +465,7 @@ defmodule Longbridge.TradeContext do
       {:ok,
        %{
          conn: nil,
-         ws_config: ws_config,
-         http_config: http_config,
+         http_config: config,
          finch: finch,
          token_refresher: token_refresher,
          subscriptions: MapSet.new(),
@@ -475,15 +473,14 @@ defmodule Longbridge.TradeContext do
          default_push_callback: nil
        }}
     else
-      conn_opts = [config: ws_config, type: :trade, parent: self()]
+      conn_opts = [config: config, type: :trade, parent: self()]
       {:ok, conn} = Longbridge.WSConnection.start_link(conn_opts)
-      schedule_heartbeat(ws_config.heartbeat_interval)
+      schedule_heartbeat(config.heartbeat_interval)
 
       {:ok,
        %{
          conn: conn,
-         ws_config: ws_config,
-         http_config: http_config,
+         http_config: config,
          finch: finch,
          token_refresher: token_refresher,
          subscriptions: MapSet.new(),
@@ -643,7 +640,7 @@ defmodule Longbridge.TradeContext do
   @impl true
   def handle_info(:heartbeat, state) do
     if state.conn, do: send(state.conn, :heartbeat)
-    schedule_heartbeat(state.ws_config.heartbeat_interval)
+    schedule_heartbeat(state.http_config.heartbeat_interval)
     {:noreply, state}
   end
 
@@ -714,7 +711,7 @@ defmodule Longbridge.TradeContext do
            state.conn,
            cmd_code,
            body,
-           state.ws_config.request_timeout
+           state.http_config.request_timeout
          ) do
       {:ok, _resp_body, _req_id} ->
         :ok
