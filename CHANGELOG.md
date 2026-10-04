@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-04
+
+### Changed
+
+- **`protox` 2.0.9 → 2.1.0, with `lib/longbridge/_protos.ex` regenerated** —
+  protox 2.1.0 raises its generator version to 2, so the pre-generated modules
+  were rebuilt against it. Same 98 modules; the file shrinks from 27,584 to
+  23,965 lines. Decoding changes callers can observe: a known field number
+  carrying an unexpected wire type is now kept as an unknown field instead of
+  being parsed with the field's expected parser (matching the reference Go and
+  Rust implementations), and a map entry whose key or value sub-field uses an
+  unsupported wire type now raises `%Protox.DecodingError{}` instead of
+  `CaseClauseError`. `%Protox.EncodingError{}` is also returned for more
+  invalid field values, so callers matching the exact exception struct inside
+  `Protox.encode/1`'s `{:error, exception}` tuple may see a different type.
+
+### Fixed
+
+- **`TradeContext.start_link/2` no longer makes a network call in `init/1`** —
+  it previously fetched the WebSocket one-time password there, so a single
+  transient connect timeout (Mint/Finch `:timeout` after ~5s) failed `init/1`
+  and took the caller's supervision tree down with it.
+  `Longbridge.WSConnection` fetches its own OTP during its own init and keeps
+  returning `{:ok, _}` with a scheduled reconnect when that fetch fails — the
+  path `QuoteContext` already used. `skip_connection: true` performs no network
+  call either, and the internal `state.ws_config` field is gone
+  (`state.http_config` holds the original config).
+
+### Security
+
+- **`mint` 1.9.3 → 1.11.0 and `finch` 0.23.0 → 0.24.0** — mint 1.11.0 fixes
+  three vulnerabilities in the HTTP client the SDK's REST transport uses
+  (unbounded HTTP/2 header-list allocation, unbounded HTTP/2 frame buffering,
+  and HTTP/1 chunked-framing divergence). finch 0.24.0 is the release that
+  closes the stale-connection window mint 1.11 exposes, so the two move
+  together.
+
 ## [0.2.1]
 
 ### Fixed
@@ -165,6 +202,7 @@ The SDK is feature-complete against the upstream protocol for the pinned
 - `Longbridge.TradeContext`: 95.9%.
 - `Longbridge.QuoteContext.RealtimeStore`: 100%.
 
+[0.3.0]: https://github.com/gilbertwong96/longbridge/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gilbertwong96/longbridge/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gilbertwong96/longbridge/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/gilbertwong96/longbridge/compare/v0.1.1...v0.1.2
