@@ -47,7 +47,7 @@ defmodule Longbridge.MixProject do
       main: "readme",
       source_url: "https://github.com/gilbertwong96/longbridge",
       homepage_url: "https://github.com/gilbertwong96/longbridge",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: ["README.md", "CHANGELOG.md", "LICENSE", "benchmarks/v0.3.0.md"],
       skip_undefined_reference_warnings_on: [
         "README.md",
         "CHANGELOG.md",
@@ -127,7 +127,7 @@ defmodule Longbridge.MixProject do
         "GitHub" => "https://github.com/gilbertwong96/longbridge",
         "Longbridge" => "https://open.longbridge.com"
       },
-      files: ~w[lib protos .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
+      files: ~w[lib protos benchmarks .formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
     ]
   end
 end

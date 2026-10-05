@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CaseClauseError`. `%Protox.EncodingError{}` is also returned for more
   invalid field values, so callers matching the exact exception struct inside
   `Protox.encode/1`'s `{:error, exception}` tuple may see a different type.
+  Measured locally against v0.2.1 on this SDK's own message types
+  (`scripts/bench_proto.exs`, three runs per tree, identical per-workload
+  checksums): encoding is 13–23% faster with 29–37% fewer reductions, and
+  decoding is 37–39% faster with 60–70% fewer reductions and 31–46% less
+  allocation. Method and raw numbers are in the
+  [v0.3.0 benchmark report](https://github.com/gilbertwong96/longbridge/blob/main/benchmarks/v0.3.0.md).
 
 ### Fixed
 
